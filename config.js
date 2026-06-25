@@ -7,10 +7,12 @@ var config = {
   project_name3: "My Third Digital Fabrication Project", // ie. My Third Awesome Project
   // ie. jdoe@college.harvard.edu
 
-  background_color: "#290404",
-  text_color: "#c85a10",
-  text_color2: "#fffb06",
-  accent_color: "#FFFFFF",
+  background_color: "#2b1410",
+  text_color: "#e8a662",
+  text_color2: "#f4c430",
+  text_color3: "#06acff",
+  accent_color: "#f2d9b1",
+
 
   // Make sure to add the @import from Google Fonts to style.css, ask if you need help!
   font_family: "Lato",
@@ -30,6 +32,10 @@ document.documentElement.style.setProperty(
 document.documentElement.style.setProperty(
   "--text-color2",
   config.text_color2
+);
+document.documentElement.style.setProperty(
+  "--text-color3",
+  config.text_color3
 );
 document.documentElement.style.setProperty(
   "--accent-color",

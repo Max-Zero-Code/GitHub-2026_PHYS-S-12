@@ -27,6 +27,13 @@ h1, h2, h3, p, b, ul, ol, pre, table {
   margin-bottom: 3rem;
 }
 
+.text-color3 {
+  color: var(--text-color3);
+}
+
+.text-color2 {
+  color: var(--text-color2);
+}
 
 h1 {
   font-size: clamp(3rem, 4.5vw, 100rem);
@@ -118,6 +125,10 @@ iframe, video {
 
 img {
   object-fit: cover;
+  border: 4px solid var(--accent-color);
+}
+.no-border {
+  border: none;
 }
 
 img:has(+ .caption) {
