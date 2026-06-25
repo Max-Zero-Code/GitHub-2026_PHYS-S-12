@@ -28,9 +28,19 @@
         this movie eventually led me to the idea of managing electrical discharge to move objects, and finaly to the idea of having precise control 
         over different factors to accurately launch objects using electromagnetic fields.
       </p>
+      
 
       <!-- Media should be put in the asset folder of their respective week -->
       <img src="./Assets/Design_1_cannon.png" alt="">
+      <p>
+        <strong><u>Input:</u></strong> The user will provide a distance and an angle equal to the distance and bearing at which the object should be launched. they will do this through a serial port in the macbook that will be conected to the micro controller.
+      </p>
+      <p>
+        <strong><u></u>Operation:</u></strong> The micro controller will recieve the imput data, and ajust the stepper motor at the base acording to the bearing and the sevo motor at the pvc pipe to acording to the distance and power requested.
+      </p>
+      <p>
+        <strong><u>Output:</u></strong> The system will launch the object at the specified distance and angle, using the coils in the pvc pipe, and it will land in the target area.
+      </p>
       
       <h2 style="text-align: center;">Project Idea 2:<span style="color: #06acff;" id="project-name2"></span></h2>
       <p style="text-align: center;">Although I am from brazil, I have been a spanish citizen for the past few years, and one thing you come to notice when living in spain is the
@@ -40,6 +50,18 @@
         and informing the organisations responsible for fire management of these conditions in forests around volatile areas.
       </p>
       <img style="height: 50%; width: 50%; transform: rotate(90deg);position: relative; top: -400px;" src="./Assets/Design_2_forest.png" alt="">
+      <section style="position: relative; top: -800px;">
+        <p>
+          <strong><u>Input:</u></strong> The user will install multiple sensors in a forest, which will collect data on temperature, humidity, and other environmental factors.
+        </p>
+        <p>
+          <strong><u>Operation:</u></strong> the system will gather all of this data and send each device will send the data to the nearest device that is in the direction of the center console device, the one with a larger antena. 
+        </p>
+        <p>
+          <strong><u>Output:</u></strong> The center console device will send the data over a larger distance to the apropriet organisation who installed the device, and display it in an excell sheet.
+        </p>
+      </section>
+      
       <h2 style="text-align: center; position:relative; top: -800px;">Project Idea 3: <span id="project-name3"></span></h2>
       <p style="text-align: center; position:relative; top: -800px;">
         This project focuses on the development of a digital synthesizer. I have always been connected to music, I love playing the piano and the electric bass, and im verry interested in music production.
@@ -49,10 +71,18 @@
         or wah wah pedals, but this technology is mostly limited to guitar and also is expensive since many times different sounds are locked behind harware pay walls. I created this design woth the idea of having the basic functions of a digital synthesizer in a small universal pedal for all instruments.
       </p>
       <img src="./Assets/Synthesizer_3.png" alt="" style="position: relative; top: -800px; width: 115%; height: 115%;">
+      <section style="position: relative; top: -800px;">
+        <p>
+          <strong><u>Input:</u></strong> The user will plug in an aux cable from an instrument in to the project, and plug an aux cable out of the project in to an amplifier. The user will then alter the sound using the buttons and knobs on the synthesizer.
+        </p>
+        <p>
+          <strong><u>Operation:</u></strong> The synthesizer will process the input signal and apply the selected effects and settings to create the desired sound using a variety of electrical components like, capacitors, 555 timers, resistors, and potentiometers..
+        </p>
+        <p>
+          <strong><u>Output:</u></strong> The device will then output the modified sound through the Exit Aux jack and send it to the plugged in amplifier.
+      </section>
     </section>
   </body>
-
-  <footer>See config.js</footer>
 
   <script src="../config.js"></script>
   <script src="../slideshow.js"></script>
