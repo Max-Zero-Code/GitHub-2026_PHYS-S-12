@@ -18,15 +18,15 @@ void setup() {
 
     Serial.println("Angle of rotation: ");
     while (Serial.available() == 0) {
-        // do nothing, just wait until you actually type something and hit enter
+       
     }
     angle = Serial.parseFloat();
     Serial.print(angle);
     stepper.setMaxSpeed(100);
-    stepper.setAcceleration(50); // <- add this
+    stepper.setAcceleration(50);
 
     fangle = round((200.0*angle/360.0));
-    stepper.moveTo(fangle); // use floats to avoid integer division issues
+    stepper.moveTo(fangle); 
 }
 
 void loop() {
@@ -34,7 +34,7 @@ void loop() {
         stepper.run();
     }
     delay(1000);
-    stepper.moveTo(homePosition); // move back to home position after reaching the target ang
+    stepper.moveTo(homePosition);
     while (stepper.distanceToGo() != 0) {
         stepper.run();
     }

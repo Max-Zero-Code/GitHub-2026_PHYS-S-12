@@ -7,12 +7,12 @@ String Passcode = "";
 
 void clear() {
   while (Serial.available() > 0) {
-    Serial.read(); // Read and discard any available data
+    Serial.read(); 
   }
 }
 
 void setup() {
-Serial.begin(9600); // Start serial communication at 9600 baud
+Serial.begin(9600); 
 pinMode(buttonPin_1, INPUT);
 pinMode(buttonPin_2, INPUT);
 pinMode(buttonPin_3, INPUT);
@@ -25,17 +25,16 @@ attachInterrupt(digitalPinToInterrupt(buttonPin_4), buttonPressed_4, RISING);
 
 Serial.println("Button passcode");
 while (Serial.available() == 0) {
-    // do nothing, just wait until you actually type something and hit enter
+    
   }
 Passcode = Serial.readStringUntil('\n');
-Entered = ""; // Remove any leading/trailing whitespace
-
+Entered = ""; 
 }
 
 void loop() {
  if (Entered.length() == 4) {
     Serial.println(Entered == Passcode ? "Access Granted" : "Access Denied");
-    Entered = ""; // reset for next attempt
+    Entered = ""; 
  } 
 clear();
 
@@ -45,7 +44,7 @@ void buttonPressed_1() {
     delay(500);
     Serial.println("1");
     Entered += "1";
-    // debounce delay
+  
 }   
 
 void buttonPressed_2() {
