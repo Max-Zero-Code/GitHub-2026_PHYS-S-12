@@ -22,9 +22,82 @@
         You have two assignments: create and calibrate a capacitive sensor and then use and calibrate another sensor.
       </p>
       
-      <h2>Capacitive Sensor</h2>
-      
-      <h2>Another Sensor</h2>
+      <h2>Capacitive Sensor = Wind Speed Capacitive sensor</h2>
+
+      <img src="./Assets/front.jpeg" alt="Measured data - full wind">
+      <h3>Measured data — full wind</h3>
+      <table>
+        <thead><tr><th>#</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>-2321</td></tr>
+          <tr><td>2</td><td>745</td></tr>
+          <tr><td>3</td><td>3015</td></tr>
+          <tr><td>4</td><td>1875</td></tr>
+          <tr><td>5</td><td>-1414</td></tr>
+          <tr><td>6</td><td>-1998</td></tr>
+          <tr><td>7</td><td>182</td></tr>
+          <tr><td>8</td><td>859</td></tr>
+          <tr><td>9</td><td>-162</td></tr>
+          <tr><td>10</td><td>4223</td></tr>
+          <tr><td>11</td><td>4513</td></tr>
+          <tr><td>12</td><td>-518</td></tr>
+          <tr><td>13</td><td>-469</td></tr>
+          <tr><td>14</td><td>-5</td></tr>
+          <tr><td>15</td><td>3026</td></tr>
+        </tbody>
+      </table>
+
+      <img src="./Assets/back.jpeg" alt="Simulated data - half wind">
+      <h3>Measured data data — half wind</h3>
+      <table>
+        <thead><tr><th>#</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>-1160</td></tr>
+          <tr><td>2</td><td>372</td></tr>
+          <tr><td>3</td><td>1507</td></tr>
+          <tr><td>4</td><td>937</td></tr>
+          <tr><td>5</td><td>-707</td></tr>
+          <tr><td>6</td><td>-999</td></tr>
+          <tr><td>7</td><td>91</td></tr>
+          <tr><td>8</td><td>430</td></tr>
+          <tr><td>9</td><td>-81</td></tr>
+          <tr><td>10</td><td>2112</td></tr>
+          <tr><td>11</td><td>2257</td></tr>
+          <tr><td>12</td><td>-259</td></tr>
+          <tr><td>13</td><td>-235</td></tr>
+          <tr><td>14</td><td>-3</td></tr>
+          <tr><td>15</td><td>1513</td></tr>
+        </tbody>
+      </table>
+
+      <h2>Another Sensor: Thermal Resistor (NTC Thermistor)</h2>
+
+      <p>Sensor cooled from 70°C to 40°C across 15 measurements. Two-point calibration model: <strong>Temperature = 0.4950 × Value + 2.28</strong> (calibrated at ADC 56 → 30°C and ADC 157 → 80°C).</p>
+
+      <h3>Measured data — 5-number summary (n = 41 readings)</h3>
+      <table>
+        <thead><tr><th>Statistic</th><th>ADC Value</th><th>Temperature (°C)</th></tr></thead>
+        <tbody>
+          <tr><td>High (Max)</td><td>110</td><td>56.7</td></tr>
+          <tr><td>Q3</td><td>106</td><td>54.8</td></tr>
+          <tr><td>Q2 (Median)</td><td>95</td><td>49.3</td></tr>
+          <tr><td>Q1</td><td>76.5</td><td>40.1</td></tr>
+          <tr><td>Low (Min)</td><td>55</td><td>29.5</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Example reference temperatures</h3>
+      <table>
+        <thead><tr><th>Temperature (°C)</th><th>Expected ADC value</th></tr></thead>
+        <tbody>
+          <tr><td>30°C</td><td>56</td></tr>
+          <tr><td>50°C</td><td>96</td></tr>
+          <tr><td>60°C</td><td>117</td></tr>
+          <tr><td>70°C</td><td>137</td></tr>
+        </tbody>
+      </table>
+
+      <iframe width="560" height="315" src="https://www.youtube.com/embed/l9mmKT8Na7w" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
       
     </section>
   </body>
