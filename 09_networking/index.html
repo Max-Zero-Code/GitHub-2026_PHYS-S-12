@@ -6,6 +6,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="ie=edge">
     <link rel="stylesheet" href="../style.css">
+    <style>
+      pre {
+        background: rgba(0,0,0,0.3);
+        border: 1px solid var(--accent-color);
+        border-radius: 6px;
+        padding: 1rem;
+        overflow-x: auto;
+        text-align: left;
+        font-size: 0.85rem;
+        max-height: 400px;
+        overflow-y: auto;
+      }
+    </style>
   </head>
 
   <nav>
@@ -18,8 +31,205 @@
     <section class="blog">
       <h1>Week 9: Networking</h1>
 
-      <p>Working with a partner or group of 3, program something that makes use of the radio, Wifi, or bluetooth capabilities of the ESP32. Only one person per group needs to have documentation on their website. Everyone else should provide a link to that person's documentation.</p>
-      
+      <p>Using ESP-NOW to send a message wirelessly from an ESP32 Dev V1 to a Xiao ESP32C3, which displays it on a 128x32 OLED screen.</p>
+
+      <video controls style="width:560px;">
+        <source src="./Assets/demo.mp4" type="video/mp4">
+      </video>
+
+      <h2>Step 1: Get MAC Addresses</h2>
+      <p>Upload this to each board and note the MAC address printed in Serial Monitor (115200 baud).</p>
+      <p><a href="./Assets/mac_getter/mac_getter.ino" download>Download mac_getter.ino</a></p>
+      <pre><code>#include &quot;WiFi.h&quot;
+
+void setup() {
+  Serial.begin(115200);
+  delay(2000);
+  WiFi.mode(WIFI_STA);
+  delay(1000);
+  Serial.print(&quot;MAC: &quot;);
+  Serial.println(WiFi.macAddress());
+
+  // Fallback: read from eFuse directly as uint64
+  uint64_t chipid = ESP.getEfuseMac();
+  Serial.printf(&quot;Chip MAC: %02X:%02X:%02X:%02X:%02X:%02X\n&quot;,
+    (uint8_t)(chipid &gt;&gt; 40),
+    (uint8_t)(chipid &gt;&gt; 32),
+    (uint8_t)(chipid &gt;&gt; 24),
+    (uint8_t)(chipid &gt;&gt; 16),
+    (uint8_t)(chipid &gt;&gt; 8),
+    (uint8_t)(chipid));
+}
+
+void loop() {}
+</code></pre>
+
+      <h2>Step 2: ESP32 Dev V1 — Sender</h2>
+      <p>Type a message in Serial Monitor and it is sent wirelessly to the Xiao.</p>
+      <p><a href="./Assets/ESP32_DevV1_controller/ESP32_DevV1_controller.ino" download>Download ESP32_DevV1_controller.ino</a></p>
+      <pre><code>// ── ESP32 Dev V1 — MESSAGE SENDER ────────────────────────────────
+// Type a message in Serial Monitor → sent to Xiao via ESP-NOW
+// Xiao displays it on its 128x32 OLED screen.
+// ─────────────────────────────────────────────────────────────────
+
+#include &lt;esp_now.h&gt;
+#include &lt;WiFi.h&gt;
+
+// ── Xiao MAC address: 94:A9:90:6D:48:44 ─────────────────────────
+uint8_t xiaoAddress[] = {0x94, 0xA9, 0x90, 0x6D, 0x48, 0x44};
+
+// ── Message structure ─────────────────────────────────────────────
+typedef struct Message {
+  char text[64];  // up to 63 characters + null terminator
+} Message;
+
+Message outgoing;
+
+// ── Send callback ─────────────────────────────────────────────────
+void OnDataSent(const wifi_tx_info_t *txInfo, esp_now_send_status_t status) {
+  Serial.println(status == ESP_NOW_SEND_SUCCESS ? &quot;Delivered.&quot; : &quot;Delivery failed.&quot;);
+}
+
+// ── Setup ─────────────────────────────────────────────────────────
+void setup() {
+  Serial.begin(115200);
+  WiFi.mode(WIFI_STA);
+
+  if (esp_now_init() != ESP_OK) {
+    Serial.println(&quot;ESP-NOW init failed — halting&quot;);
+    while (true);
+  }
+
+  esp_now_register_send_cb(OnDataSent);
+
+  esp_now_peer_info_t peer;
+  memset(&amp;peer, 0, sizeof(peer));
+  memcpy(peer.peer_addr, xiaoAddress, 6);
+  peer.channel = 0;
+  peer.encrypt = false;
+
+  if (esp_now_add_peer(&amp;peer) != ESP_OK) {
+    Serial.println(&quot;Failed to add Xiao as peer — halting&quot;);
+    while (true);
+  }
+
+  Serial.println(&quot;Ready. Type a message and press Enter:&quot;);
+}
+
+// ── Loop ──────────────────────────────────────────────────────────
+void loop() {
+  if (Serial.available()) {
+    String input = Serial.readStringUntil(&#x27;\n&#x27;);
+    input.trim();
+
+    if (input.length() == 0) return;
+
+    // Copy into struct (max 63 chars)
+    memset(outgoing.text, 0, sizeof(outgoing.text));
+    strncpy(outgoing.text, input.c_str(), 63);
+
+    Serial.print(&quot;Sending: \&quot;&quot;);
+    Serial.print(outgoing.text);
+    Serial.println(&quot;\&quot;&quot;);
+
+    esp_now_send(xiaoAddress, (uint8_t *)&amp;outgoing, sizeof(outgoing));
+  }
+}
+</code></pre>
+
+      <h2>Step 3: Xiao ESP32C3 — OLED Display</h2>
+      <p>Receives the message via ESP-NOW and displays it on the 128x32 SSD1306 OLED (SDA→D4, SCL→D5).</p>
+      <p><a href="./Assets/Xiao_receiver/Xiao_receiver.ino" download>Download Xiao_receiver.ino</a></p>
+      <pre><code>// ── Xiao ESP32C3 — MESSAGE DISPLAY ───────────────────────────────
+// Receives a message from ESP32 Dev V1 via ESP-NOW and displays
+// it on the 128x32 SSD1306 OLED screen.
+// ─────────────────────────────────────────────────────────────────
+
+#include &lt;esp_now.h&gt;
+#include &lt;WiFi.h&gt;
+#include &lt;Wire.h&gt;
+#include &lt;Adafruit_GFX.h&gt;
+#include &lt;Adafruit_SSD1306.h&gt;
+
+// ── OLED setup ────────────────────────────────────────────────────
+#define SCREEN_WIDTH  128
+#define SCREEN_HEIGHT  32
+#define OLED_RESET     -1
+#define SCREEN_ADDRESS 0x3C
+
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &amp;Wire, OLED_RESET);
+
+// ── Message structure (must match sender exactly) ─────────────────
+typedef struct Message {
+  char text[64];
+} Message;
+
+Message incoming;
+bool newMessage = false;
+
+// ── Receive callback (core 3.x signature) ────────────────────────
+void OnDataRecv(const esp_now_recv_info *info, const uint8_t *data, int len) {
+  memcpy(&amp;incoming, data, sizeof(incoming));
+  incoming.text[63] = &#x27;\0&#x27;;  // ensure null-terminated
+  newMessage = true;
+  Serial.print(&quot;Received: &quot;);
+  Serial.println(incoming.text);
+}
+
+// ── Show message on OLED with word wrap ───────────────────────────
+void showOnOLED(const char *msg) {
+  display.clearDisplay();
+  display.setTextSize(1);       // 6x8px per char → 21 chars wide, 4 lines tall
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.setTextWrap(true);    // auto-wrap at screen edge
+  display.print(msg);
+  display.display();
+}
+
+// ── Setup ─────────────────────────────────────────────────────────
+void setup() {
+  Serial.begin(115200);
+
+  // I2C on D4 (SDA) and D5 (SCL)
+  Wire.begin(D4, D5);
+
+  if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+    Serial.println(&quot;OLED not found — check wiring&quot;);
+    while (true);
+  }
+
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.println(&quot;Waiting for&quot;);
+  display.println(&quot;message...&quot;);
+  display.display();
+
+  WiFi.mode(WIFI_STA);
+  Serial.print(&quot;Xiao MAC: &quot;);
+  Serial.println(WiFi.macAddress());
+
+  if (esp_now_init() != ESP_OK) {
+    Serial.println(&quot;ESP-NOW init failed — halting&quot;);
+    while (true);
+  }
+
+  esp_now_register_recv_cb(OnDataRecv);
+
+  Serial.println(&quot;Listening...&quot;);
+}
+
+// ── Loop ──────────────────────────────────────────────────────────
+void loop() {
+  if (newMessage) {
+    newMessage = false;
+    showOnOLED(incoming.text);
+  }
+}
+</code></pre>
+
     </section>
   </body>
 
