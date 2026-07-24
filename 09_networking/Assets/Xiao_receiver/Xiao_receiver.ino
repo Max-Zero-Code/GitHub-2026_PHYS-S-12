@@ -1,15 +1,9 @@
-// ── Xiao ESP32C3 — MESSAGE DISPLAY ───────────────────────────────
-// Receives a message from ESP32 Dev V1 via ESP-NOW and displays
-// it on the 128x32 SSD1306 OLED screen.
-// ─────────────────────────────────────────────────────────────────
-
 #include <esp_now.h>
 #include <WiFi.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
-// ── OLED setup ────────────────────────────────────────────────────
 #define SCREEN_WIDTH  128
 #define SCREEN_HEIGHT  32
 #define OLED_RESET     -1
@@ -17,7 +11,6 @@
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-// ── Message structure (must match sender exactly) ─────────────────
 typedef struct Message {
   char text[64];
 } Message;
@@ -25,31 +18,28 @@ typedef struct Message {
 Message incoming;
 bool newMessage = false;
 
-// ── Receive callback (core 3.x signature) ────────────────────────
 void OnDataRecv(const esp_now_recv_info *info, const uint8_t *data, int len) {
   memcpy(&incoming, data, sizeof(incoming));
-  incoming.text[63] = '\0';  // ensure null-terminated
+  incoming.text[63] = '\0';  
   newMessage = true;
   Serial.print("Received: ");
   Serial.println(incoming.text);
 }
 
-// ── Show message on OLED with word wrap ───────────────────────────
 void showOnOLED(const char *msg) {
   display.clearDisplay();
-  display.setTextSize(1);       // 6x8px per char → 21 chars wide, 4 lines tall
+  display.setTextSize(1);       
   display.setTextColor(SSD1306_WHITE);
   display.setCursor(0, 0);
-  display.setTextWrap(true);    // auto-wrap at screen edge
+  display.setTextWrap(true);    
   display.print(msg);
   display.display();
 }
 
-// ── Setup ─────────────────────────────────────────────────────────
 void setup() {
   Serial.begin(115200);
 
-  // I2C on D4 (SDA) and D5 (SCL)
+  
   Wire.begin(D4, D5);
 
   if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
@@ -79,7 +69,6 @@ void setup() {
   Serial.println("Listening...");
 }
 
-// ── Loop ──────────────────────────────────────────────────────────
 void loop() {
   if (newMessage) {
     newMessage = false;

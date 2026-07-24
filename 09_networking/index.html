@@ -50,7 +50,7 @@ void setup() {
   Serial.print(&quot;MAC: &quot;);
   Serial.println(WiFi.macAddress());
 
-  // Fallback: read from eFuse directly as uint64
+  
   uint64_t chipid = ESP.getEfuseMac();
   Serial.printf(&quot;Chip MAC: %02X:%02X:%02X:%02X:%02X:%02X\n&quot;,
     (uint8_t)(chipid &gt;&gt; 40),
@@ -67,30 +67,21 @@ void loop() {}
       <h2>Step 2: ESP32 Dev V1 — Sender</h2>
       <p>Type a message in Serial Monitor and it is sent wirelessly to the Xiao.</p>
       <p><a href="./Assets/ESP32_DevV1_controller/ESP32_DevV1_controller.ino" download>Download ESP32_DevV1_controller.ino</a></p>
-      <pre><code>// ── ESP32 Dev V1 — MESSAGE SENDER ────────────────────────────────
-// Type a message in Serial Monitor → sent to Xiao via ESP-NOW
-// Xiao displays it on its 128x32 OLED screen.
-// ─────────────────────────────────────────────────────────────────
-
-#include &lt;esp_now.h&gt;
+      <pre><code>#include &lt;esp_now.h&gt;
 #include &lt;WiFi.h&gt;
 
-// ── Xiao MAC address: 94:A9:90:6D:48:44 ─────────────────────────
 uint8_t xiaoAddress[] = {0x94, 0xA9, 0x90, 0x6D, 0x48, 0x44};
 
-// ── Message structure ─────────────────────────────────────────────
 typedef struct Message {
-  char text[64];  // up to 63 characters + null terminator
+  char text[64];  
 } Message;
 
 Message outgoing;
 
-// ── Send callback ─────────────────────────────────────────────────
 void OnDataSent(const wifi_tx_info_t *txInfo, esp_now_send_status_t status) {
   Serial.println(status == ESP_NOW_SEND_SUCCESS ? &quot;Delivered.&quot; : &quot;Delivery failed.&quot;);
 }
 
-// ── Setup ─────────────────────────────────────────────────────────
 void setup() {
   Serial.begin(115200);
   WiFi.mode(WIFI_STA);
@@ -116,7 +107,6 @@ void setup() {
   Serial.println(&quot;Ready. Type a message and press Enter:&quot;);
 }
 
-// ── Loop ──────────────────────────────────────────────────────────
 void loop() {
   if (Serial.available()) {
     String input = Serial.readStringUntil(&#x27;\n&#x27;);
@@ -124,7 +114,7 @@ void loop() {
 
     if (input.length() == 0) return;
 
-    // Copy into struct (max 63 chars)
+    
     memset(outgoing.text, 0, sizeof(outgoing.text));
     strncpy(outgoing.text, input.c_str(), 63);
 
@@ -140,18 +130,12 @@ void loop() {
       <h2>Step 3: Xiao ESP32C3 — OLED Display</h2>
       <p>Receives the message via ESP-NOW and displays it on the 128x32 SSD1306 OLED (SDA→D4, SCL→D5).</p>
       <p><a href="./Assets/Xiao_receiver/Xiao_receiver.ino" download>Download Xiao_receiver.ino</a></p>
-      <pre><code>// ── Xiao ESP32C3 — MESSAGE DISPLAY ───────────────────────────────
-// Receives a message from ESP32 Dev V1 via ESP-NOW and displays
-// it on the 128x32 SSD1306 OLED screen.
-// ─────────────────────────────────────────────────────────────────
-
-#include &lt;esp_now.h&gt;
+      <pre><code>#include &lt;esp_now.h&gt;
 #include &lt;WiFi.h&gt;
 #include &lt;Wire.h&gt;
 #include &lt;Adafruit_GFX.h&gt;
 #include &lt;Adafruit_SSD1306.h&gt;
 
-// ── OLED setup ────────────────────────────────────────────────────
 #define SCREEN_WIDTH  128
 #define SCREEN_HEIGHT  32
 #define OLED_RESET     -1
@@ -159,7 +143,6 @@ void loop() {
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &amp;Wire, OLED_RESET);
 
-// ── Message structure (must match sender exactly) ─────────────────
 typedef struct Message {
   char text[64];
 } Message;
@@ -167,31 +150,28 @@ typedef struct Message {
 Message incoming;
 bool newMessage = false;
 
-// ── Receive callback (core 3.x signature) ────────────────────────
 void OnDataRecv(const esp_now_recv_info *info, const uint8_t *data, int len) {
   memcpy(&amp;incoming, data, sizeof(incoming));
-  incoming.text[63] = &#x27;\0&#x27;;  // ensure null-terminated
+  incoming.text[63] = &#x27;\0&#x27;;  
   newMessage = true;
   Serial.print(&quot;Received: &quot;);
   Serial.println(incoming.text);
 }
 
-// ── Show message on OLED with word wrap ───────────────────────────
 void showOnOLED(const char *msg) {
   display.clearDisplay();
-  display.setTextSize(1);       // 6x8px per char → 21 chars wide, 4 lines tall
+  display.setTextSize(1);       
   display.setTextColor(SSD1306_WHITE);
   display.setCursor(0, 0);
-  display.setTextWrap(true);    // auto-wrap at screen edge
+  display.setTextWrap(true);    
   display.print(msg);
   display.display();
 }
 
-// ── Setup ─────────────────────────────────────────────────────────
 void setup() {
   Serial.begin(115200);
 
-  // I2C on D4 (SDA) and D5 (SCL)
+  
   Wire.begin(D4, D5);
 
   if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
@@ -221,7 +201,6 @@ void setup() {
   Serial.println(&quot;Listening...&quot;);
 }
 
-// ── Loop ──────────────────────────────────────────────────────────
 void loop() {
   if (newMessage) {
     newMessage = false;

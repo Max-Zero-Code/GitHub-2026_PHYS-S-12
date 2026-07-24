@@ -8,7 +8,7 @@ void setup() {
   Serial.print("MAC: ");
   Serial.println(WiFi.macAddress());
 
-  // Fallback: read from eFuse directly as uint64
+  
   uint64_t chipid = ESP.getEfuseMac();
   Serial.printf("Chip MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
     (uint8_t)(chipid >> 40),
