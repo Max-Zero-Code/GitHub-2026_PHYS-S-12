@@ -37,521 +37,241 @@
     <section class="blog">
       <h1>Minimum Viable Product</h1>
 
-      <p>The MVP consists of two programs working together: an Arduino sketch that controls the stepper motor and servo to set rotation and pitch angles, and a desktop C++ program that calculates the optimal launch angle using projectile motion simulation with drag.</p>
+      <h2>Goals</h2>
+      <ul>
+        <li>Finish printing the casing for the sensor ESP32</li>
+        <li>Create a fully fledged network relay system</li>
+        <li>Create a proper menu and touch screen for the screen</li>
+        <li>Print the external casing for the screen</li>
+        <li>Finish protoboard for screen electronics</li>
+      </ul>
 
-      <img src="./Assets/IMG_1951.jpeg" alt="MVP build photo" style="width:500px;">
+      <h2>Explanation</h2>
+      <p>My project's main idea is a forest fire prevention system. Various units of the product are placed in forest areas with vegetation, and using CO2, moisture, temperature, IR, and capacitive sensors, the product is able to monitor the main factors that lead to forest fires. Through a hosted network extended by each Xiao, sensor data is sent to a main console where all statistics can be actively monitored by firefighters.</p>
 
-      <h2>Rotational and Pitch Angle Code</h2>
-      <p><a href="./Assets/Rotational%20and%20Pitch%20angle%20code.ino" download>Download .ino file</a></p>
-      <pre><code>#include &lt;AccelStepper.h&gt;
-#include &lt;ESP32Servo.h&gt;
-#include &lt;Arduino.h&gt;
-#include &lt;cmath&gt;
+      <h2>Demo</h2>
+      <iframe width="315" height="560" src="https://www.youtube.com/embed/dS2HGYnMZtg" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
-const int stepPin = D7;
-const int dirPin  = D1;
-float angle = 0.0;
-int fangle = 0;
-long homePosition = 0;
+      <h2>Sensor Node Code (Xiao — Sender)</h2>
+      <pre><code>#include &lt;WiFi.h&gt;
+#include &lt;esp_now.h&gt;
+#include &quot;DHT.h&quot;
 
-AccelStepper stepper(1, stepPin, dirPin);
+#define IR_PIN   D0
+#define GAS_PIN  D1
+#define SOIL_PIN D2
+#define DHTPIN   D4
+#define DHTTYPE  DHT22
 
-const int servoPin = D6;
-Servo pitchServo;
-float pitchAngle = 0.0;
+DHT dht(DHTPIN, DHTTYPE);
+
+typedef struct SensorPacket {
+  int   irRaw;
+  int   gasRaw;
+  int   soilRaw;
+  float tempC;
+  float humidity;
+  bool  dhtValid;
+} SensorPacket;
+
+SensorPacket packet;
+uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+
+void onDataSent(const wifi_tx_info_t *tx_info, esp_now_send_status_t status) {
+  Serial.print(&quot;Send status: &quot;);
+  Serial.println(status == ESP_NOW_SEND_SUCCESS ? &quot;OK&quot; : &quot;FAIL&quot;);
+}
 
 void setup() {
-    Serial.begin(9600);
-    delay(200);
+  Serial.begin(115200);
+  delay(500);
 
-    homePosition = stepper.currentPosition();
-    stepper.setMaxSpeed(100);
-    stepper.setAcceleration(50);
+  analogReadResolution(12);
+  dht.begin();
 
-    pitchServo.attach(servoPin);
+  WiFi.mode(WIFI_STA);
 
-    // Wait for the rotation angle from the PC, sent as &quot;ROTATION:270.0\n&quot;
-    while (Serial.available() == 0) {
-        yield();
-    }
-    String rotLine = Serial.readStringUntil(&#x27;\n&#x27;);
-    if (rotLine.startsWith(&quot;ROTATION:&quot;)) {
-        angle = rotLine.substring(9).toFloat();
-    }
+  if (esp_now_init() != ESP_OK) {
+    Serial.println(&quot;ESP-NOW init failed&quot;);
+    return;
+  }
+  esp_now_register_send_cb(onDataSent);
 
-    fangle = round((200.0 * angle / 360.0));
-    stepper.moveTo(fangle);
+  esp_now_peer_info_t peerInfo = {};
+  memcpy(peerInfo.peer_addr, broadcastAddress, 6);
+  peerInfo.channel = 0;
+  peerInfo.encrypt = false;
+  if (esp_now_add_peer(&amp;peerInfo) != ESP_OK) {
+    Serial.println(&quot;Failed to add peer&quot;);
+    return;
+  }
 
-    while (stepper.distanceToGo() != 0) {
-        stepper.run();
-        yield();
-    }
-
-    delay(5000);
-
-    // Wait for the pitch angle from the PC, sent as &quot;PITCH:37.5\n&quot;
-    while (Serial.available() == 0) {
-        yield();
-    }
-    String pitchLine = Serial.readStringUntil(&#x27;\n&#x27;);
-    if (pitchLine.startsWith(&quot;PITCH:&quot;)) {
-        pitchAngle = pitchLine.substring(6).toFloat();
-        pitchAngle = constrain(pitchAngle, 0, 180);
-        pitchServo.write(pitchAngle);
-    }
+  Serial.println(&quot;Sensor node ready, broadcasting via ESP-NOW.&quot;);
 }
 
 void loop() {
-    stepper.moveTo(fangle);
-    while (stepper.distanceToGo() != 0) {
-        stepper.run();
-        yield();
-    }
-    delay(1000);
+  packet.irRaw   = analogRead(IR_PIN);
+  packet.gasRaw  = analogRead(GAS_PIN);
+  packet.soilRaw = analogRead(SOIL_PIN);
 
-    stepper.moveTo(homePosition);
-    while (stepper.distanceToGo() != 0) {
-        stepper.run();
-        yield();
-    }
-    delay(1000);
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
+  if (isnan(h) || isnan(t)) {
+    packet.dhtValid = false;
+  } else {
+    packet.dhtValid = true;
+    packet.tempC = t;
+    packet.humidity = h;
+  }
+
+  esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *)&amp;packet, sizeof(packet));
+
+  Serial.print(&quot;IR: &quot;); Serial.print(packet.irRaw);
+  Serial.print(&quot;  Gas: &quot;); Serial.print(packet.gasRaw);
+  Serial.print(&quot;  Soil: &quot;); Serial.print(packet.soilRaw);
+  Serial.print(&quot;  DHT: &quot;);
+  if (packet.dhtValid) {
+    Serial.print(packet.tempC); Serial.print(&quot;C &quot;); Serial.print(packet.humidity); Serial.print(&quot;%&quot;);
+  } else {
+    Serial.print(&quot;invalid&quot;);
+  }
+  Serial.println(result == ESP_OK ? &quot;  [sent]&quot; : &quot;  [send error]&quot;);
+
+  delay(2000);
 }</code></pre>
       <p class="code-caption">AI was used to create templates for the code and debugging, but not for any direct coding.</p>
 
-      <h2>Projectile Motion Code</h2>
-      <p><a href="./Assets/Projectile%20Motion.cpp" download>Download .cpp file</a></p>
-      <pre><code>// ============================================================
-// PROJECTILE MOTION + DRAG -&gt; OPTIMAL LAUNCH ANGLE -&gt; ESP32
-// ============================================================
-// ROADMAP ONLY — no algorithm logic implemented yet.
-// This file lays out the sections, variables, and function
-// stubs you need to fill in. Work top to bottom.
-//
-// PROGRAM TYPE: this runs as a desktop/host C++ program
-// (has int main()), NOT as an Arduino .ino. It computes the
-// optimal angle, then talks to the ESP32 over a USB/UART
-// serial connection. The ESP32 side needs its own sketch that
-// reads the same serial data (separate .ino file).
-// ============================================================
-//
-// SUGGESTED BUILD ORDER (don&#x27;t go top-to-bottom by section number,
-// build in dependency order instead):
-//   1.  Section 2  - fill in real pellet numbers
-//   2.  Section 1  - sanity-check constants
-//                                                                          3.  Section 8  - implement computeDragForce
-//   4.  Section 8  - write a new &quot;slope function&quot;: takes
-//                     [x,y,vx,vy], returns [vx,vy,ax,ay] using
-//                     computeDragForce + gravity
-//   5.  Section 5  - pick Euler or RK4, use the slope function
-//                     inside the step loop
-//   6.  Section 8  - finish simulateTrajectory using that loop
-//   7.  Section 3  - decide how inputs are set (hardcode first,
-//                     add cin/sensor later)
-//   8.  Section 9  - main(): call simulateTrajectory once with a
-//                     guessed angle, print the result, sanity check
-//   9.  Section 6  - implement findOptimalAngle using simulateTrajectory
-//   10. Section 9  - main(): call findOptimalAngle, print bestAngle
-//   11. Section 7  - pick serial port/baud/message format
-//   12. Section 8  - implement the three serial functions
-//   13. Section 9  - main(): wire in the serial calls
-//   14. Separate ESP32 .ino - write the receiver sketch to match
-// ============================================================
+      <h2>Display Host Code (Xiao — Receiver)</h2>
+      <pre><code>#define LGFX_USE_V1
+#include &lt;LovyanGFX.hpp&gt;
+#include &lt;WiFi.h&gt;
+#include &lt;esp_now.h&gt;
 
-#include &lt;cmath&gt;
-#include &lt;iostream&gt;
-#include &lt;termios.h&gt;
-#include &lt;numbers&gt;
-#include &lt;fcntl.h&gt;   // for open()
-#include &lt;unistd.h&gt;  // for write(), close(), sleep()
-#include &lt;string&gt;
-#include &lt;cerrno&gt;    // for errno
-#include &lt;cstring&gt;   // for strerror()
+class LGFX : public lgfx::LGFX_Device {
+  lgfx::Panel_ILI9488 _panel_instance;
+  lgfx::Bus_SPI       _bus_instance;
 
-float pi = std::numbers::pi;
+public:
+  LGFX(void) {
+    auto bus_cfg = _bus_instance.config();
+    bus_cfg.spi_host   = SPI2_HOST;
+    bus_cfg.spi_mode   = 0;
+    bus_cfg.freq_write = 8000000;
+    bus_cfg.freq_read  = 4000000;
+    bus_cfg.pin_sclk   = D8;
+    bus_cfg.pin_mosi   = D10;
+    bus_cfg.pin_miso   = D9;
+    bus_cfg.pin_dc     = D2;
+    _bus_instance.config(bus_cfg);
+    _panel_instance.setBus(&amp;_bus_instance);
 
-// ------------------------------------------------------------
-// SECTION 1: PHYSICAL / ENVIRONMENT CONSTANTS
-// ------------------------------------------------------------
-// Everything the drag equation needs that does NOT change
-// between shots.
-const float GRAVITY = -9.8f;        // m/s^2
-const float AIR_DENSITY = 1.225f;   // kg/m^3 (sea level, adjust if needed)
-// TODO: decide if AIR_DENSITY should be a fixed constant or a
-// variable you read from a sensor / user input later.
-// HINT: build order step 2. These rarely change — get Section 2
-// done first, then just double check GRAVITY&#x27;s sign convention
-// matches how you set up posY (is up positive or negative?).
+    auto panel_cfg = _panel_instance.config();
+    panel_cfg.pin_cs    = D1;
+    panel_cfg.pin_rst   = D3;
+    panel_cfg.pin_busy  = -1;
+    panel_cfg.panel_width  = 320;
+    panel_cfg.panel_height = 480;
+    panel_cfg.offset_rotation = 0;
+    _panel_instance.config(panel_cfg);
 
+    setPanel(&amp;_panel_instance);
+  }
+};
 
-// ------------------------------------------------------------
-// SECTION 2: PELLET / PROJECTILE PROPERTIES
-// ------------------------------------------------------------
-// Physical properties of the pellet itself — these feed the
-// drag force calculation (F_drag = 0.5 * rho * v^2 * Cd * A).
-float pelletMass = 0.00114;          // kg
-float pelletDiameter = 0.0065;
-float pelletRadius = 0.0065/2;        // m  (derive from diameter)
-float pelletCrossSectionArea = pi*std::pow(pelletRadius, 2); // m^2 (pi * r^2) — used in drag eq
-float dragCoefficient = 0.47;     // Cd, dimensionless (depends on pellet shape, ~0.47 for sphere as starting point)
-// TODO: research/measure Cd for your specific pellet shape.
-// HINT: build order step 1 — do this section FIRST. Everything
-// downstream (drag force, trajectory, angle search) is garbage
-// if these are still 0. pelletCrossSectionArea = pi * pelletRadius^2,
-// and pelletRadius = pelletDiameter / 2. Look up Cd for a sphere
-// (~0.47) as a starting guess if you don&#x27;t have a measured value.
+LGFX tft;
 
+typedef struct SensorPacket {
+  int   irRaw;
+  int   gasRaw;
+  int   soilRaw;
+  float tempC;
+  float humidity;
+  bool  dhtValid;
+} SensorPacket;
 
-// ------------------------------------------------------------
-// SECTION 3: LAUNCH CONDITIONS (INPUTS)
-// ------------------------------------------------------------
-// What you know or can control before a shot.
-float muzzleVelocity = 6.67;      // U, m/s — initial speed leaving the launcher
-float targetDistance = 0;      // Sx target, m — how far you want the pellet to land
-float launchHeight = 0;        // initial y position, m (0 if launcher is at ground level)
-float targetDistanceX = 0;
-float targetDistanceY = 0;
-float maxDistance = 0;
+SensorPacket lastPacket;
+volatile bool newData = false;
+unsigned long lastReceivedMs = 0;
 
+void onDataRecv(const esp_now_recv_info_t *recvInfo, const uint8_t *incomingData, int len) {
+  if (len != sizeof(SensorPacket)) return;
+  memcpy(&amp;lastPacket, incomingData, sizeof(lastPacket));
+  newData = true;
+  lastReceivedMs = millis();
 
-// TODO: decide how these get set — hardcoded test values,
-// user input via std::cin, or read from a rangefinder sensor?
-// HINT: build order step 7. Start with hardcoded numbers so you
-// can test simulateTrajectory without typing input every run.
-// Only wire up std::cin once the math is verified correct.
-// (Note: the line above won&#x27;t compile — cin doesn&#x27;t take a
-// prompt string like that. Correct pattern is two statements:
-// std::cout &lt;&lt; &quot;prompt&quot;; then std::cin &gt;&gt; targetDistance;
-// and it has to be inside a function, not out here.)
-
-
-// ------------------------------------------------------------
-// SECTION 4: SIMULATION STATE VARIABLES
-// ------------------------------------------------------------
-// These change every timestep while simulating one trajectory.
-float PosX = 0;                // current x position, m
-float PosY = 0;                // current y position, m
-
-float velX = 0;                // current x velocity, m/s
-float velY = 0; 
-float U = 0; 
-
-float accX = 0;                
-float accY = 0; 
-float acc = 0;               // current y acceleration, m/s^2 (gravity + drag)
-
-float simTime = 0;             // elapsed simulation time, s
-// HINT: nothing to build here — these just get reset and updated
-// inside simulateTrajectory (build order step 6). Revisit this
-// section only if you decide to switch from single variables to
-// a state array/struct for the RK4 rewrite.
-
-
-// ------------------------------------------------------------
-// SECTION 5: SIMULATION PARAMETERS
-// ------------------------------------------------------------
-// Controls for the numerical integration (since drag makes this
-// unsolvable in closed form — you must step through time).
-const float TIME_STEP = 0.001f;   // dt, s — smaller = more accurate, slower
-const float MAX_SIM_TIME = 20.0f; // safety cutoff, 
-
-// TODO: pick an integration method: simple Euler (easy, less
-// accurate) vs. RK4 (more accurate, more code). Decide here.
-// HINT: build order step 5. Get Euler working first even if you
-// want RK4 eventually — it&#x27;s 5 lines and proves your slope
-// function is correct before you add RK4&#x27;s extra complexity.
-// This loop belongs INSIDE simulateTrajectory (Section 8), not
-// out here at file scope — C++ can&#x27;t run a loop outside a
-// function. Also: comparing floats with != (like TIME_STEP !=
-// MAX_SIM_TIME) is unreliable — floating point steps can skip
-// past the exact target. Use simTime &lt; MAX_SIM_TIME instead, or
-// better, stop when posY &lt;= launchHeight (the pellet landed).
-
-
-// ------------------------------------------------------------
-// SECTION 6: ANGLE SEARCH VARIABLES
-// ------------------------------------------------------------
-// Range vs. angle (with drag) is basically unimodal, so you can
-// search instead of solving analytically.
-float angleMin = 0;            // degrees, lower search bound
-float angleMax = 90;           // degrees, upper search bound
-float angleStep = 0.001;           // degrees, resolution if doing a sweep
-float bestAngle = 0;           // degrees, best result found
-float bestAngleError = 0;      // how far off bestAngle&#x27;s landing was from targetDistance
-// TODO: choose search strategy — brute-force sweep (simple,
-// slower) vs. binary/golden-section search (fewer simulations,
-// needs the unimodal assumption to hold).
-// HINT: build order step 9 — don&#x27;t touch this until
-// simulateTrajectory actually returns a real distance. Start
-// with a brute-force sweep (loop angleMin to angleMax by
-// angleStep, call simulateTrajectory, keep the closest result)
-// since it&#x27;s easier to reason about and debug than a smarter
-// search. Optimize to binary/golden-section search later if it&#x27;s
-// too slow.
-
-
-// ------------------------------------------------------------
-// SECTION 7: SERIAL / ESP32 COMMUNICATION CONFIG
-// ------------------------------------------------------------
-const char* SERIAL_PORT_NAME = &quot;/dev/cu.usbmodem101&quot;;
-const int SERIAL_BAUD_RATE = 9600;
-int fd = -1;   // file descriptor for the open serial connection
-// Decide the message format/protocol, e.g.:
-//   &quot;ANGLE:37.5\n&quot;   (human-readable, easy to debug)
-//   or raw bytes (compact, needs matching parser on ESP32)
-// Whatever you pick here MUST match what the ESP32 .ino expects.
-// HINT: build order step 11 — leave this until the simulation and
-// angle search are verified working and printing sane numbers to
-// the console. Don&#x27;t add serial complexity while you&#x27;re still
-// debugging the physics. Keep the protocol simple to start:
-// &quot;ANGLE:37.5\n&quot; as plain text is easiest to eyeball while testing.
-
-
-// ------------------------------------------------------------
-// SECTION 8: FUNCTION STUBS (fill in logic later)
-// ------------------------------------------------------------
-// HINT: don&#x27;t fill these top to bottom — build order is
-// computeDragForce (step 3) -&gt; a new slope function you add
-// (step 4) -&gt; simulateTrajectory (step 6) -&gt; findOptimalAngle
-// (step 9) -&gt; the three serial functions (step 12), in that order.
-
-// Runs one full trajectory simulation for a given launch angle
-// and muzzle velocity, stepping through time with drag applied
-// each step, until the pellet lands (posY &lt;= launchHeight).
-// Returns the horizontal distance traveled (final posX).
-
-
-// Computes the drag force magnitude for the current velocity.
-// Called from inside simulateTrajectory&#x27;s loop.
-float computeDragForce(float speed) {
-    // TODO: F_drag = 0.5 * AIR_DENSITY * speed^2 * dragCoefficient * pelletCrossSectionArea
-    float F_drag = 0.5 * AIR_DENSITY * std::pow(speed, 2) * dragCoefficient * pelletCrossSectionArea;
-    return F_drag;
+  Serial.print(&quot;IR: &quot;); Serial.print(lastPacket.irRaw);
+  Serial.print(&quot;  Gas: &quot;); Serial.print(lastPacket.gasRaw);
+  Serial.print(&quot;  Soil: &quot;); Serial.print(lastPacket.soilRaw);
+  Serial.print(&quot;  DHT: &quot;);
+  if (lastPacket.dhtValid) {
+    Serial.print(lastPacket.tempC); Serial.print(&quot;C &quot;); Serial.print(lastPacket.humidity); Serial.print(&quot;%&quot;);
+  } else {
+    Serial.print(&quot;invalid&quot;);
+  }
+  Serial.println(&quot;  [received]&quot;);
 }
 
-float simulateTrajectory(float angleDegrees, float velocity) {
-    // TODO:
+void drawReading(int y, const char *label, String value) {
+  tft.fillRect(10, y, 300, 24, TFT_BLACK);
+  tft.setCursor(10, y);
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(2);
+  tft.print(label);
+  tft.print(&quot;: &quot;);
+  tft.println(value);
+}
 
-    // 1. reset posX/posY/velX/velY/simTime to initial conditions
-    PosX = 0;                // current x position, m
-    PosY = 0;
-    float posX = 0;
-    float posY = 0;
-                   
-    velX = 0;                // current x velocity, m/s
-    velY = 0;
-    U = velocity;
+void setup() {
+  Serial.begin(115200);
+  delay(500);
 
-    float VelX;
-    float VelY;
+  tft.init();
+  tft.setRotation(1);
+  tft.fillScreen(TFT_RED);
+  delay(2000);
 
-    accX = 0;               
-    accY = 0; 
-    acc = 0;
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(2);
+  tft.setCursor(10, 10);
+  tft.println(&quot;Waiting for sensor data...&quot;);
 
-    simTime = 0;
+  WiFi.mode(WIFI_STA);
 
-    float angleRad = angleDegrees * (pi/180);
+  if (esp_now_init() != ESP_OK) {
+    Serial.println(&quot;ESP-NOW init failed&quot;);
+    return;
+  }
+  esp_now_register_recv_cb(onDataRecv);
 
-    velX = U * std::cos(angleRad);
-    velY = U * std::sin(angleRad);
+  Serial.println(&quot;Display host ready, listening for ESP-NOW packets.&quot;);
+}
 
-    while (simTime &lt;= MAX_SIM_TIME) {
+void loop() {
+  if (newData) {
+    newData = false;
+    tft.fillScreen(TFT_BLACK);
 
-        float speed = std::sqrt(std::pow(velX, 2) + std::pow(velY, 2));
+    drawReading(20,  &quot;IR raw&quot;,   String(lastPacket.irRaw));
+    drawReading(50,  &quot;Gas raw&quot;,  String(lastPacket.gasRaw));
+    drawReading(80,  &quot;Soil raw&quot;, String(lastPacket.soilRaw));
 
-        float dragForce = computeDragForce(speed);
-
-        accX = (-dragForce / pelletMass) * std::cos(angleRad);
-        accY = ((-dragForce / pelletMass) * std::sin(angleRad)) + GRAVITY;
-
-        posY = (velY * TIME_STEP) + 0.5 * accY * std::pow(TIME_STEP, 2);
-        posX = (velX * TIME_STEP) + 0.5 * accX * std::pow(TIME_STEP, 2);
-
-        if (velY &lt; 0 &amp;&amp; PosY &lt;= targetDistanceY) {
-            break;  // pellet has descended to the target&#x27;s height
-        }
-        if (velX &lt; 0 &amp;&amp; PosX &gt;= targetDistanceX) {
-            break;  // pellet has descended to the target&#x27;s height
-        }
-
-        velX = velX + accX * TIME_STEP;
-        velY = velY + accY * TIME_STEP;
-
-        PosX += posX;
-        PosY += posY;
-
-        angleRad = std::atan2(velY, velX);
-
-        simTime = simTime + TIME_STEP;
+    if (lastPacket.dhtValid) {
+      drawReading(110, &quot;Temp&quot;, String(lastPacket.tempC, 1) + &quot;C&quot;);
+      drawReading(140, &quot;Humidity&quot;, String(lastPacket.humidity, 1) + &quot;%&quot;);
+    } else {
+      drawReading(110, &quot;DHT&quot;, &quot;read failed&quot;);
     }
+  }
 
-    return PosX;
-}
-
-
-
-
-
-
-// Searches angles between angleMin and angleMax, calling
-// simulateTrajectory for each candidate, to find the angle whose
-// landing distance is closest to targetDistance.
-// Sets bestAngle and bestAngleError.
-void findOptimalAngle(float angleMax, float angleMin) {
-    float high = angleMax;
-    float low = angleMin;
-
-    float low_2 = angleMin;
-    float high_2 = 0;
-
-    float maxDistanceAngle = 0;
-
-    float Q1 = low + (high-low) * 1/3;
-    float Q2 = low + (high-low) * 2/3;
-
-    float mid = (high_2+low_2)/2;
-
-    float trajectory_1 = 0;
-    float trajectory_2 = 0;
-    float trajectory_3 = 0;
-
-    while (high-low &gt; angleStep){
-
-        trajectory_1 = simulateTrajectory(Q1, muzzleVelocity);
-        trajectory_2 = simulateTrajectory(Q2, muzzleVelocity);
-
-        if (trajectory_1 &lt; trajectory_2) {
-            low = Q1;
-            Q1 = low + (high-low) * 1/3;
-            Q2 = low + (high-low) * 2/3;
-
-        } else if (trajectory_1 &gt; trajectory_2){
-            high = Q2;
-            Q1 = low + (high-low) * 1/3;
-            Q2 = low + (high-low) * 2/3;
-
-        }
-    }
-    maxDistanceAngle = (low + high)/2;
-    high_2 = maxDistanceAngle;
-
-    while (high_2-low_2 &gt; angleStep){
-
-        trajectory_3 = simulateTrajectory(mid, muzzleVelocity);
-
-        if (trajectory_3 &lt; targetDistanceX) {
-            low_2 = mid;
-            mid = (high_2+low_2)/2;
-
-        } else if (trajectory_3 &gt; targetDistanceX){
-            high_2 = mid;
-            mid = (high_2+low_2)/2;
-        }
-    
-    }
-    bestAngle = (high_2+low_2)/2;
-    bestAngleError = simulateTrajectory(bestAngle, muzzleVelocity)-targetDistance;
-
-}
-
-
-
-// Opens the serial connection to the ESP32.
-// Returns success/failure (or a handle, depending on library used).
-bool openSerialConnection() {
-    fd = open(SERIAL_PORT_NAME, O_RDWR | O_NOCTTY);
-    if (fd == -1) {
-        std::cout &lt;&lt; &quot;Failed to open &quot; &lt;&lt; SERIAL_PORT_NAME &lt;&lt; &quot;: &quot; &lt;&lt; strerror(errno) &lt;&lt; &quot;\n&quot;;
-        return false;
-    }
-
-    struct termios options;
-    tcgetattr(fd, &amp;options);
-
-    cfsetispeed(&amp;options, B9600);
-    cfsetospeed(&amp;options, B9600);
-
-    options.c_cflag &amp;= ~PARENB;   // no parity bit
-    options.c_cflag &amp;= ~CSTOPB;   // 1 stop bit
-    options.c_cflag &amp;= ~CSIZE;    // clear data-bits field
-    options.c_cflag |= CS8;       // 8 data bits
-
-    options.c_lflag &amp;= ~(ICANON | ECHO);  // raw mode, no line buffering/echo
-
-    tcsetattr(fd, TCSANOW, &amp;options);
-
-    sleep(1);  // give the ESP32 time to reboot after the port opens
-
-    return true;
-}
-
-// Formats an angle into the agreed protocol (&quot;LABEL:value\n&quot;) and
-// writes it to the open serial connection. label distinguishes which
-// motor the value is for on the ESP32 side (e.g. &quot;ROTATION&quot;, &quot;PITCH&quot;).
-void sendAngleToESP32(const std::string&amp; label, float angleDegrees) {
-    std::string message = label + &quot;:&quot; + std::to_string(angleDegrees) + &quot;\n&quot;;
-    write(fd, message.c_str(), message.length());
-}
-
-// Closes the serial connection cleanly.
-void closeSerialConnection() {
-    close(fd);
-}
-
-
-// ------------------------------------------------------------
-// SECTION 9: MAIN PROGRAM FLOW
-// ------------------------------------------------------------
-int main() {
-    std::cout &lt;&lt; &quot;How Far is target in the X axis (M): &quot;;
-    std::cin &gt;&gt; targetDistanceX;
-    std::cout &lt;&lt; &quot;How Far is target in the Y axis (M): &quot;;
-    std::cin &gt;&gt; targetDistanceY;
-
-    float rotationAngle = 0;
-    std::cout &lt;&lt; &quot;Rotation angle for the stepper (degrees): &quot;;
-    std::cin &gt;&gt; rotationAngle;
-
-    findOptimalAngle(angleMax, angleMin);
-    std::cout &lt;&lt; bestAngle &lt;&lt; &quot;\n&quot;;
-    std::cout &lt;&lt; bestAngleError &lt;&lt; &quot;\n&quot;;
-
-    if (openSerialConnection()) {
-        sendAngleToESP32(&quot;ROTATION&quot;, rotationAngle);
-        sendAngleToESP32(&quot;PITCH&quot;, bestAngle);
-        closeSerialConnection();
-    }
-    // HINT: build this in two passes. First pass (steps 1-4 below):
-    // hardcoded inputs -&gt; one simulateTrajectory call -&gt; print and
-    // sanity check. Only after that works, add findOptimalAngle and
-    // the serial calls (steps 5-7). Don&#x27;t write all 7 lines before
-    // testing the first 4.
-    // TODO, in order:
-    // 1. set pellet properties (Section 2) — measure or hardcode
-    // 2. get muzzleVelocity and targetDistance (Section 3) —
-    //    hardcode for testing, later maybe std::cin or sensor input
-    // 3. call findOptimalAngle()
-    // 4. print bestAngle / bestAngleError to console for sanity check
-    // 5. openSerialConnection()
-    // 6. sendAngleToESP32(bestAngle)
-    // 7. closeSerialConnection()
-
-    return 0;
-}
-
-// ------------------------------------------------------------
-// SEPARATE FILE NEEDED: ESP32 .ino sketch
-// ------------------------------------------------------------
-// Not part of this file, but required for the system to work:
-//   - Serial.begin(SERIAL_BAUD_RATE) matching this program
-//   - Serial.available() / Serial.read() loop to receive the
-//     angle in whatever format Section 7 defines
-//   - Parse the received value into a float
-//   - Drive whatever moves the launcher to that angle
-//     (servo, stepper motor, etc. — depends on your hardware)
-// HINT: build order step 14 — last thing to write, and only once
-// this program is successfully printing bestAngle correctly.
-</code></pre>
+  if (millis() - lastReceivedMs &gt; 10000 &amp;&amp; lastReceivedMs != 0) {
+    tft.fillRect(10, 180, 300, 24, TFT_BLACK);
+    tft.setCursor(10, 180);
+    tft.setTextColor(TFT_RED);
+    tft.setTextSize(2);
+    tft.println(&quot;Signal lost&quot;);
+  }
+}</code></pre>
       <p class="code-caption">AI was used to create templates for the code and debugging, but not for any direct coding.</p>
 
     </section>
