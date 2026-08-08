@@ -6,6 +6,46 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="ie=edge">
     <link rel="stylesheet" href="../style.css">
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <style>
+    .stl-viewer {
+      width: 100%;
+      max-width: 560px;
+      height: 360px;
+      border: 1px solid var(--accent-color);
+      border-radius: 8px;
+      display: block;
+      margin: 1rem auto;
+      cursor: grab;
+    }
+    .stl-viewer:active { cursor: grabbing; }
+    .stl-hint {
+      text-align: center;
+      font-size: 0.85rem;
+      opacity: 0.6;
+      margin-top: -0.5rem;
+      margin-bottom: 1rem;
+    }
+    pre {
+      background: rgba(0,0,0,0.3);
+      border: 1px solid var(--accent-color);
+      border-radius: 6px;
+      padding: 1rem;
+      overflow-x: auto;
+      text-align: left;
+      font-size: 0.85rem;
+      max-height: 500px;
+      overflow-y: auto;
+    }
+    .code-caption {
+      font-style: italic;
+      font-size: 0.9rem;
+      margin-top: 0.5rem;
+      opacity: 0.8;
+    }
+  </style>
   </head>
 
   <nav>
@@ -33,23 +73,629 @@
 
       <h3>Enclosures</h3>
       <p>[ Add enclosures content here ]</p>
+      <canvas class="stl-viewer" id="viewer-sensor"></canvas>
+      <p class="stl-hint">Click and drag to rotate &nbsp;|&nbsp; Scroll to zoom &nbsp;|&nbsp; Right-click drag to pan</p>
+      <p><a href="./Assets/sensor%20enclosure.stl" download>Download sensor enclosure.stl</a></p>
 
       <h3>Electronics and PCB Creation</h3>
       <p>[ Add electronics and PCB content here ]</p>
 
       <h3>Code</h3>
-      <p>[ Add code content here ]</p>
+      <p><a href="./Assets/forest_sensor_node.ino" download>Download forest_sensor_node.ino</a></p>
+      <pre><code>#include &quot;painlessMesh.h&quot;
+#include &lt;ArduinoJson.h&gt;
+#include &quot;DHT.h&quot;
+
+String nodeName;
+static String deriveNodeName() {
+#ifdef NODE_NAME_OVERRIDE
+  return String(NODE_NAME_OVERRIDE);
+#else
+  uint64_t mac = ESP.getEfuseMac();
+  char buf[20];
+  snprintf(buf, sizeof(buf), &quot;sensor-%02x%02x%02x&quot;,
+           (uint8_t)(mac &gt;&gt; 16), (uint8_t)(mac &gt;&gt; 8), (uint8_t)mac);
+  return String(buf);
+#endif
+}
+
+#define MESH_SSID     &quot;sensorMesh&quot;
+#define MESH_PASSWORD &quot;meshpassword123&quot;
+#define MESH_PORT     5555
+Scheduler    userScheduler;
+painlessMesh mesh;
+void sendReading();
+Task taskSendReading(TASK_SECOND * 2, TASK_FOREVER, &amp;sendReading);
+
+#define IR_PIN   A0
+#define GAS_PIN  A1
+#define SOIL_PIN A2
+#define DHTPIN   D4
+#define DHTTYPE  DHT22
+const float ADC_MAX_VOLTAGE = 3.3;
+const int   ADC_RESOLUTION  = 4095;
+const float GAS_DIVIDER_SCALE = 1.5;
+DHT dht(DHTPIN, DHTTYPE);
+unsigned long lastDHTRead = 0;
+const unsigned long DHT_INTERVAL_MS = 2000;
+
+int   latestIrRaw   = 0;
+int   latestGasRaw  = 0;
+int   latestSoilRaw = 0;
+float latestTempC   = 0.0f;
+float latestHum     = 0.0f;
+bool  dhtValid      = false;
+unsigned long lastDHTOkMs = 0;
+
+void sendReading() {
+  StaticJsonDocument&lt;256&gt; doc;
+  doc[&quot;node&quot;] = nodeName;
+  doc[&quot;ir&quot;]   = latestIrRaw;
+  doc[&quot;gas&quot;]  = latestGasRaw;
+  doc[&quot;soil&quot;] = latestSoilRaw;
+  bool ok = dhtValid &amp;&amp; (millis() - lastDHTOkMs &lt; 10000);
+  doc[&quot;temp&quot;]  = ok ? latestTempC : 0.0f;
+  doc[&quot;hum&quot;]   = ok ? latestHum   : 0.0f;
+  doc[&quot;dhtok&quot;] = ok;
+  String payload;
+  serializeJson(doc, payload);
+  mesh.sendBroadcast(payload);
+  Serial.print(&quot;Sent: &quot;);
+  Serial.println(payload);
+}
+
+void receivedCallback(uint32_t from, String &amp;msg) {
+  Serial.printf(&quot;Relay/other node msg from %u: %s\n&quot;, from, msg.c_str());
+}
+void newConnectionCallback(uint32_t nodeId) {
+  Serial.printf(&quot;New mesh connection: %u\n&quot;, nodeId);
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(500);
+  nodeName = deriveNodeName();
+  analogReadResolution(12);
+  dht.begin();
+  mesh.setDebugMsgTypes(ERROR | STARTUP);
+  mesh.init(MESH_SSID, MESH_PASSWORD, &amp;userScheduler, MESH_PORT);
+  mesh.onReceive(&amp;receivedCallback);
+  mesh.onNewConnection(&amp;newConnectionCallback);
+  userScheduler.addTask(taskSendReading);
+  taskSendReading.enable();
+  Serial.println();
+  Serial.println(F(&quot;=== ALL SENSORS TEST ===&quot;));
+  Serial.println(F(&quot;IR (A0) | Gas (A1) | Soil (A2) | DHT22 (D4)&quot;));
+  Serial.println();
+  Serial.printf(&quot;%s ready, joining mesh.\n&quot;, nodeName.c_str());
+}
+
+void loop() {
+  mesh.update();
+  static unsigned long lastSample = 0;
+  if (millis() - lastSample &lt; 300) return;
+  lastSample = millis();
+  int irRaw = analogRead(IR_PIN);
+  float irVolts = irRaw * (ADC_MAX_VOLTAGE / ADC_RESOLUTION);
+  int gasRaw = analogRead(GAS_PIN);
+  float gasPinVolts = gasRaw * (ADC_MAX_VOLTAGE / ADC_RESOLUTION);
+  float gasSensorVolts = gasPinVolts * GAS_DIVIDER_SCALE;
+  int soilRaw = analogRead(SOIL_PIN);
+  float soilVolts = soilRaw * (ADC_MAX_VOLTAGE / ADC_RESOLUTION);
+  Serial.print(F(&quot;IR raw: &quot;));
+  Serial.print(irRaw);
+  Serial.print(F(&quot; (&quot;));
+  Serial.print(irVolts, 2);
+  Serial.print(F(&quot;V)  |  Gas raw: &quot;));
+  Serial.print(gasRaw);
+  Serial.print(F(&quot; (&quot;));
+  Serial.print(gasSensorVolts, 2);
+  Serial.print(F(&quot;V)  |  Soil raw: &quot;));
+  Serial.print(soilRaw);
+  Serial.print(F(&quot; (&quot;));
+  Serial.print(soilVolts, 2);
+  Serial.print(F(&quot;V)&quot;));
+  if (millis() - lastDHTRead &gt;= DHT_INTERVAL_MS) {
+    lastDHTRead = millis();
+    float h = dht.readHumidity();
+    float t = dht.readTemperature();
+    Serial.print(F(&quot;  |  DHT: &quot;));
+    if (isnan(h) || isnan(t)) {
+      Serial.print(F(&quot;read failed&quot;));
+      dhtValid = false;
+    } else {
+      Serial.print(t, 1);
+      Serial.print(F(&quot;C &quot;));
+      Serial.print(h, 1);
+      Serial.print(F(&quot;%&quot;));
+      latestTempC = t;
+      latestHum   = h;
+      dhtValid    = true;
+      lastDHTOkMs = millis();
+    }
+  }
+  Serial.println();
+  latestIrRaw   = irRaw;
+  latestGasRaw  = gasRaw;
+  latestSoilRaw = soilRaw;
+}</code></pre>
+      <p class="code-caption">AI was used to create templates for the code and debugging, but not for any direct coding.</p>
 
       <h2>Web Host and Center</h2>
 
       <h3>Enclosures</h3>
       <p>[ Add enclosures content here ]</p>
+      <canvas class="stl-viewer" id="viewer-screen"></canvas>
+      <p class="stl-hint">Click and drag to rotate &nbsp;|&nbsp; Scroll to zoom &nbsp;|&nbsp; Right-click drag to pan</p>
+      <p><a href="./Assets/screen%20enclosure.stl" download>Download screen enclosure.stl</a></p>
 
       <h3>Electronics and PCB Creation</h3>
       <p>[ Add electronics and PCB content here ]</p>
 
       <h3>Code</h3>
-      <p>[ Add code content here ]</p>
+      <p><a href="./Assets/forest_display_host.ino" download>Download forest_display_host.ino</a></p>
+      <pre><code>#include &lt;Arduino.h&gt;
+#define LGFX_USE_V1
+#include &lt;LovyanGFX.hpp&gt;
+#include &lt;SPI.h&gt;
+#include &quot;painlessMesh.h&quot;
+#include &lt;ArduinoJson.h&gt;
+
+#define MESH_SSID     &quot;sensorMesh&quot;
+#define MESH_PASSWORD &quot;meshpassword123&quot;
+#define MESH_PORT     5555
+#define MAX_NODES     6
+#define STALE_MS      10000UL
+struct NodeReading {
+  String        name;
+  int           ir, gas, soil;
+  float         temp, hum;
+  bool          dhtOk;
+  unsigned long lastSeenMs;
+  bool          everSeen;
+};
+NodeReading nodes[MAX_NODES];
+int  knownNodeCount = 0;
+bool nodesDirty     = true;
+Scheduler   userScheduler;
+painlessMesh mesh;
+int findOrAddNode(const String &amp;name) {
+  for (int i = 0; i &lt; knownNodeCount; i++) {
+    if (nodes[i].name == name) return i;
+  }
+  if (knownNodeCount &lt; MAX_NODES) {
+    nodes[knownNodeCount].name = name;
+    nodes[knownNodeCount].everSeen = false;
+    return knownNodeCount++;
+  }
+  return -1;
+}
+bool nodeIsStale(const NodeReading &amp;n) {
+  return !n.everSeen || (millis() - n.lastSeenMs &gt; STALE_MS);
+}
+
+class LGFX : public lgfx::LGFX_Device {
+  lgfx::Bus_SPI       _bus_instance;
+  lgfx::Panel_ILI9488 _panel_instance;
+public:
+  LGFX(void) {
+    auto bus_cfg = _bus_instance.config();
+    bus_cfg.spi_host   = SPI2_HOST;
+    bus_cfg.spi_mode   = 0;
+    bus_cfg.freq_write = 8000000;
+    bus_cfg.freq_read  = 4000000;
+    bus_cfg.pin_sclk   = D4;
+    bus_cfg.pin_mosi   = D10;
+    bus_cfg.pin_miso   = D3;
+    bus_cfg.pin_dc     = D2;
+    bus_cfg.spi_3wire  = false;
+    bus_cfg.use_lock   = true;
+    _bus_instance.config(bus_cfg);
+    _panel_instance.setBus(&amp;_bus_instance);
+    auto panel_cfg = _panel_instance.config();
+    panel_cfg.pin_cs       = D1;
+    panel_cfg.pin_rst      = D0;
+    panel_cfg.pin_busy     = -1;
+    panel_cfg.panel_width  = 320;
+    panel_cfg.panel_height = 480;
+    panel_cfg.offset_rotation = 0;
+    panel_cfg.bus_shared   = true;
+    _panel_instance.config(panel_cfg);
+    setPanel(&amp;_panel_instance);
+  }
+};
+LGFX tft;
+
+#define TOUCH_CS    D5
+#define TOUCH_IRQ   D8
+#define TOUCH_MISO  D3
+#define TOUCH_CMD_X 0xD0
+#define TOUCH_CMD_Y 0x90
+#define TOUCH_FREQ  1000000
+#define CAL_INSET   60
+#define CAL_POINTS  5
+#define RAW_MIN     100
+#define RAW_MAX     4000
+struct Calibration { float ax, bx, cx, ay, by, cy; };
+Calibration cal = { 0.137f, 0.0f, -41.0f, 0.0f, 0.091f, -27.0f };
+#define SKIP_CALIBRATION 0
+uint16_t readTouchChannel(uint8_t cmd) {
+  digitalWrite(TOUCH_CS, LOW);
+  SPI.beginTransaction(SPISettings(TOUCH_FREQ, MSBFIRST, SPI_MODE0));
+  SPI.transfer(cmd);
+  uint8_t hi = SPI.transfer(0x00);
+  uint8_t lo = SPI.transfer(0x00);
+  SPI.endTransaction();
+  digitalWrite(TOUCH_CS, HIGH);
+  return ((uint16_t)hi &lt;&lt; 8 | lo) &gt;&gt; 3;
+}
+static uint16_t median5(uint16_t *v) {
+  for (int i = 1; i &lt; 5; i++) {
+    uint16_t k = v[i];
+    int j = i - 1;
+    while (j &gt;= 0 &amp;&amp; v[j] &gt; k) { v[j + 1] = v[j]; j--; }
+    v[j + 1] = k;
+  }
+  return v[2];
+}
+bool readTouchRaw(uint16_t *rawX, uint16_t *rawY) {
+  if (digitalRead(TOUCH_IRQ) != LOW) return false;
+  uint16_t xs[5], ys[5];
+  for (int i = 0; i &lt; 5; i++) {
+    xs[i] = readTouchChannel(TOUCH_CMD_X);
+    ys[i] = readTouchChannel(TOUCH_CMD_Y);
+  }
+  uint16_t x = median5(xs), y = median5(ys);
+  *rawX = x;
+  *rawY = y;
+  return !(x &lt; RAW_MIN || x &gt; RAW_MAX || y &lt; RAW_MIN || y &gt; RAW_MAX);
+}
+bool readTouchPoint(int32_t *sx, int32_t *sy) {
+  uint16_t rawX, rawY;
+  if (!readTouchRaw(&amp;rawX, &amp;rawY)) return false;
+  *sx = constrain((int32_t)lroundf(cal.ax * rawX + cal.bx * rawY + cal.cx), 0, tft.width()  - 1);
+  *sy = constrain((int32_t)lroundf(cal.ay * rawX + cal.by * rawY + cal.cy), 0, tft.height() - 1);
+  return true;
+}
+bool getTap(int32_t *tapX, int32_t *tapY) {
+  static bool wasDown = false;
+  int32_t x, y;
+  if (readTouchPoint(&amp;x, &amp;y)) {
+    if (!wasDown) { wasDown = true; *tapX = x; *tapY = y; return true; }
+  } else if (digitalRead(TOUCH_IRQ) != LOW) {
+    wasDown = false;
+  }
+  return false;
+}
+
+static void waitForStableTouch(uint16_t *rawX, uint16_t *rawY) {
+  while (true) {
+    uint16_t x1, y1, x2, y2;
+    if (readTouchRaw(&amp;x1, &amp;y1)) {
+      delay(40);
+      if (readTouchRaw(&amp;x2, &amp;y2)
+          &amp;&amp; abs((int)x1 - (int)x2) &lt; 80 &amp;&amp; abs((int)y1 - (int)y2) &lt; 80) {
+        *rawX = x2; *rawY = y2;
+        return;
+      }
+    }
+    delay(10);
+  }
+}
+static void waitForRelease(void) {
+  while (digitalRead(TOUCH_IRQ) == LOW) delay(10);
+  delay(200);
+}
+static void captureTarget(uint16_t *rawX, uint16_t *rawY) {
+  uint16_t sx, sy;
+  waitForStableTouch(&amp;sx, &amp;sy);
+  uint32_t accX = sx, accY = sy;
+  uint16_t n = 1;
+  for (int i = 0; i &lt; 14; i++) {
+    uint16_t x, y;
+    if (readTouchRaw(&amp;x, &amp;y)) { accX += x; accY += y; n++; }
+    delay(10);
+  }
+  *rawX = accX / n; *rawY = accY / n;
+}
+static bool solve3x3(double m[3][3], const double v[3], double out[3]) {
+  #define DET3(a) ( a[0][0]*(a[1][1]*a[2][2] - a[1][2]*a[2][1]) \
+                  - a[0][1]*(a[1][0]*a[2][2] - a[1][2]*a[2][0]) \
+                  + a[0][2]*(a[1][0]*a[2][1] - a[1][1]*a[2][0]) )
+  double det = DET3(m);
+  if (fabs(det) &lt; 1e-6) return false;
+  for (int c = 0; c &lt; 3; c++) {
+    double t[3][3];
+    memcpy(t, m, sizeof(t));
+    for (int r = 0; r &lt; 3; r++) t[r][c] = v[r];
+    out[c] = DET3(t) / det;
+  }
+  return true;
+  #undef DET3
+}
+static void drawTarget(int32_t x, int32_t y) {
+  tft.drawFastHLine(x - 14, y, 29, TFT_YELLOW);
+  tft.drawFastVLine(x, y - 14, 29, TFT_YELLOW);
+  tft.drawCircle(x, y, 7, TFT_YELLOW);
+}
+void calibrate(void) {
+  const int32_t W = tft.width(), H = tft.height();
+  const int32_t px[CAL_POINTS] = { CAL_INSET, W - CAL_INSET, W - CAL_INSET, CAL_INSET, W / 2 };
+  const int32_t py[CAL_POINTS] = { CAL_INSET, CAL_INSET, H - CAL_INSET, H - CAL_INSET, H / 2 };
+  uint16_t rx[CAL_POINTS], ry[CAL_POINTS];
+  for (int i = 0; i &lt; CAL_POINTS; i++) {
+    tft.fillScreen(TFT_BLACK);
+    drawTarget(px[i], py[i]);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.setTextSize(2);
+    char msg[40];
+    snprintf(msg, sizeof(msg), &quot;Tap the target  (%d/%d)&quot;, i + 1, CAL_POINTS);
+    tft.drawCenterString(msg, W / 2, H / 2 + 40);
+    Serial.printf(&quot;calibration %d/%d: target at (%ld, %ld)\n&quot;,
+                  i + 1, CAL_POINTS, (long)px[i], (long)py[i]);
+    captureTarget(&amp;rx[i], &amp;ry[i]);
+    tft.fillScreen(TFT_BLACK);
+    tft.setTextColor(TFT_GREEN, TFT_BLACK);
+    tft.drawCenterString(&quot;Got it - lift off&quot;, W / 2, H / 2 - tft.fontHeight() / 2);
+    waitForRelease();
+    Serial.printf(&quot;  captured raw(%u,%u)\n&quot;, rx[i], ry[i]);
+  }
+  double m[3][3] = {{0}}, vX[3] = {0}, vY[3] = {0};
+  for (int i = 0; i &lt; CAL_POINTS; i++) {
+    double x = rx[i], y = ry[i];
+    m[0][0] += x*x;  m[0][1] += x*y;  m[0][2] += x;
+    m[1][0] += x*y;  m[1][1] += y*y;  m[1][2] += y;
+    m[2][0] += x;    m[2][1] += y;    m[2][2] += 1.0;
+    vX[0] += x*px[i];  vX[1] += y*px[i];  vX[2] += px[i];
+    vY[0] += x*py[i];  vY[1] += y*py[i];  vY[2] += py[i];
+  }
+  double solX[3], solY[3], mCopy[3][3];
+  memcpy(mCopy, m, sizeof(mCopy));
+  bool okX = solve3x3(mCopy, vX, solX);
+  memcpy(mCopy, m, sizeof(mCopy));
+  bool okY = solve3x3(mCopy, vY, solY);
+  if (!okX || !okY) {
+    Serial.println(&quot;calibration failed to solve - keeping previous values&quot;);
+    tft.fillScreen(TFT_BLACK);
+    tft.setTextColor(TFT_RED, TFT_BLACK);
+    tft.drawCenterString(&quot;Calibration failed&quot;, W / 2, H / 2);
+    delay(2000);
+    return;
+  }
+  cal.ax = solX[0]; cal.bx = solX[1]; cal.cx = solX[2];
+  cal.ay = solY[0]; cal.by = solY[1]; cal.cy = solY[2];
+  float worst = 0;
+  for (int i = 0; i &lt; CAL_POINTS; i++) {
+    float fx = cal.ax*rx[i] + cal.bx*ry[i] + cal.cx;
+    float fy = cal.ay*rx[i] + cal.by*ry[i] + cal.cy;
+    float e = sqrtf((fx-px[i])*(fx-px[i]) + (fy-py[i])*(fy-py[i]));
+    if (e &gt; worst) worst = e;
+  }
+  Serial.printf(&quot;Calibration cal = { %.6ff, %.6ff, %.3ff,\n&quot;, cal.ax, cal.bx, cal.cx);
+  Serial.printf(&quot;                    %.6ff, %.6ff, %.3ff };\n&quot;, cal.ay, cal.by, cal.cy);
+  Serial.printf(&quot;worst residual: %.1f px\n&quot;, worst);
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextColor(worst &gt; 12.0f ? TFT_YELLOW : TFT_GREEN, TFT_BLACK);
+  char done[48];
+  snprintf(done, sizeof(done), &quot;Calibrated  (%.1f px error)&quot;, worst);
+  tft.drawCenterString(done, W / 2, H / 2 - tft.fontHeight() / 2);
+  delay(1200);
+}
+
+int currentTab = 0;
+static inline int tabCount(void) { return 1 + knownNodeCount; }
+static String tabLabel(int i) {
+  if (i == 0) return &quot;Home&quot;;
+  return &quot;Xiao &quot; + String(i);
+}
+#define NAV_H      56
+#define COL_BG     0x0000
+#define COL_PANEL  0x18E3
+#define COL_ACTIVE 0x001F
+#define COL_TEXT   0xFFFF
+#define COL_DIM    0xAD55
+#define COL_OK     0x07E0
+#define COL_WARN   0xFD20
+#define COL_STALE  0xF800
+void drawNavBar(void) {
+  const int n = tabCount();
+  const int32_t tabW = tft.width() / n;
+  const uint8_t textSize = (tabW &gt;= 96) ? 2 : 1;
+  for (int i = 0; i &lt; n; i++) {
+    const int32_t x = i * tabW;
+    const int32_t w = (i == n - 1) ? (tft.width() - x) : tabW;
+    const bool active = (currentTab == i);
+    tft.fillRect(x, 0, w, NAV_H, active ? COL_ACTIVE : COL_PANEL);
+    tft.drawRect(x, 0, w, NAV_H, COL_BG);
+    tft.setTextSize(textSize);
+    tft.setTextColor(active ? COL_TEXT : COL_DIM);
+    String label = tabLabel(i);
+    tft.drawCenterString(label, x + w / 2, NAV_H / 2 - tft.fontHeight() / 2);
+    if (i &gt; 0) {
+      const NodeReading &amp;nd = nodes[i - 1];
+      tft.fillCircle(x + w / 2, NAV_H - 14, 3, nodeIsStale(nd) ? COL_STALE : COL_OK);
+    }
+    if (active) tft.fillRect(x, NAV_H - 4, w, 4, COL_OK);
+  }
+}
+static void drawRow(int32_t y, const char *label, const String &amp;value, uint16_t valueColor) {
+  tft.setTextSize(2);
+  tft.setTextColor(COL_DIM, COL_BG);
+  tft.setCursor(20, y);
+  tft.print(label);
+  tft.setTextColor(valueColor, COL_BG);
+  tft.setCursor(200, y);
+  tft.print(value);
+}
+void drawHomeScreen(void) {
+  tft.setTextSize(2);
+  if (knownNodeCount == 0) {
+    tft.setTextColor(COL_DIM, COL_BG);
+    tft.drawCenterString(&quot;Waiting for sensor nodes...&quot;, tft.width() / 2, NAV_H + 90);
+    tft.drawCenterString(&quot;mesh: &quot; MESH_SSID, tft.width() / 2, NAV_H + 120);
+    return;
+  }
+  tft.setTextColor(COL_DIM, COL_BG);
+  tft.setCursor(20, NAV_H + 14);  tft.print(&quot;NODE&quot;);
+  tft.setCursor(150, NAV_H + 14); tft.print(&quot;TEMP&quot;);
+  tft.setCursor(250, NAV_H + 14); tft.print(&quot;HUM&quot;);
+  tft.setCursor(350, NAV_H + 14); tft.print(&quot;STATUS&quot;);
+  for (int i = 0; i &lt; knownNodeCount; i++) {
+    const int32_t y = NAV_H + 48 + i * 32;
+    const bool stale = nodeIsStale(nodes[i]);
+    tft.setTextColor(COL_TEXT, COL_BG);
+    tft.setCursor(20, y);
+    tft.print(nodes[i].name);
+    if (nodes[i].everSeen &amp;&amp; nodes[i].dhtOk) {
+      tft.setTextColor(stale ? COL_DIM : COL_TEXT, COL_BG);
+      tft.setCursor(150, y); tft.printf(&quot;%.1fC&quot;, nodes[i].temp);
+      tft.setCursor(250, y); tft.printf(&quot;%.0f%%&quot;, nodes[i].hum);
+    } else if (nodes[i].everSeen) {
+      tft.setTextColor(COL_WARN, COL_BG);
+      tft.setCursor(150, y); tft.print(&quot;DHT?&quot;);
+      tft.setCursor(250, y); tft.print(&quot;--&quot;);
+    } else {
+      tft.setTextColor(COL_DIM, COL_BG);
+      tft.setCursor(150, y); tft.print(&quot;--&quot;);
+      tft.setCursor(250, y); tft.print(&quot;--&quot;);
+    }
+    tft.setTextColor(stale ? COL_STALE : COL_OK, COL_BG);
+    tft.setCursor(350, y);
+    tft.print(stale ? &quot;STALE&quot; : &quot;LIVE&quot;);
+  }
+}
+void drawNodeDetailScreen(int idx) {
+  if (idx &lt; 0 || idx &gt;= knownNodeCount) return;
+  tft.setTextSize(3);
+  tft.setTextColor(COL_TEXT, COL_BG);
+  tft.setCursor(20, NAV_H + 16);
+  tft.print(nodes[idx].name);
+  if (!nodes[idx].everSeen) {
+    tft.setTextSize(2);
+    tft.setTextColor(COL_DIM, COL_BG);
+    tft.drawCenterString(&quot;No data from this node yet&quot;, tft.width() / 2, NAV_H + 110);
+    return;
+  }
+  const NodeReading &amp;n = nodes[idx];
+  const bool stale = nodeIsStale(n);
+  const uint16_t vc = stale ? COL_DIM : COL_TEXT;
+  const unsigned long age = (millis() - n.lastSeenMs) / 1000;
+  char status[48];
+  snprintf(status, sizeof(status), &quot;%s  (%lus ago)&quot;, stale ? &quot;STALE&quot; : &quot;live&quot;, age);
+  tft.setTextSize(2);
+  tft.setTextColor(stale ? COL_STALE : COL_OK, COL_BG);
+  tft.setCursor(20, NAV_H + 48);
+  tft.print(status);
+  drawRow(NAV_H + 90,  &quot;Temp&quot;,
+          n.dhtOk ? String(n.temp, 1) + &quot; C&quot; : String(&quot;sensor fault&quot;),
+          n.dhtOk ? vc : COL_WARN);
+  drawRow(NAV_H + 120, &quot;Humidity&quot;,
+          n.dhtOk ? String(n.hum, 1) + &quot; %&quot;  : String(&quot;sensor fault&quot;),
+          n.dhtOk ? vc : COL_WARN);
+  drawRow(NAV_H + 150, &quot;IR / heat&quot;, String(n.ir),  vc);
+  drawRow(NAV_H + 180, &quot;Gas&quot;,       String(n.gas), vc);
+  drawRow(NAV_H + 210, &quot;Soil&quot;,      String(n.soil), vc);
+}
+void drawStatusBar(void) {
+  const int32_t y = tft.height() - 30;
+  tft.fillRect(0, y - 4, tft.width(), 34, COL_BG);
+  int live = 0;
+  for (int i = 0; i &lt; knownNodeCount; i++) if (!nodeIsStale(nodes[i])) live++;
+  char buf[64];
+  snprintf(buf, sizeof(buf), &quot;mesh %u nodes  |  %d/%d live  |  up %lus&quot;,
+           (unsigned)mesh.getNodeList().size(), live, knownNodeCount, millis() / 1000);
+  tft.setTextSize(2);
+  tft.setTextColor(COL_DIM, COL_BG);
+  tft.drawCenterString(buf, tft.width() / 2, y);
+}
+void drawCurrentScreen(void) {
+  if (currentTab &gt;= tabCount()) currentTab = 0;
+  tft.fillRect(0, NAV_H, tft.width(), tft.height() - NAV_H, COL_BG);
+  drawNavBar();
+  if (currentTab == 0) drawHomeScreen();
+  else                 drawNodeDetailScreen(currentTab - 1);
+  drawStatusBar();
+}
+bool handleNavTap(int32_t x, int32_t y) {
+  if (y &gt;= NAV_H) return false;
+  const int n = tabCount();
+  const int32_t tabW = tft.width() / n;
+  int idx = constrain((int)(x / tabW), 0, n - 1);
+  if (idx != currentTab) {
+    currentTab = idx;
+    drawCurrentScreen();
+    Serial.printf(&quot;screen -&gt; %s\n&quot;, tabLabel(idx).c_str());
+  }
+  return true;
+}
+
+void receivedCallback(uint32_t from, String &amp;msg) {
+  Serial.printf(&quot;rx from %u: %s\n&quot;, from, msg.c_str());
+  StaticJsonDocument&lt;256&gt; doc;
+  if (deserializeJson(doc, msg)) return;
+  String name = doc[&quot;node&quot;] | &quot;unknown&quot;;
+  int idx = findOrAddNode(name);
+  if (idx &lt; 0) return;
+  nodes[idx].ir   = doc[&quot;ir&quot;]   | 0;
+  nodes[idx].gas  = doc[&quot;gas&quot;]  | 0;
+  nodes[idx].soil = doc[&quot;soil&quot;] | 0;
+  nodes[idx].temp = doc[&quot;temp&quot;] | 0.0f;
+  nodes[idx].hum  = doc[&quot;hum&quot;]  | 0.0f;
+  nodes[idx].dhtOk = doc[&quot;dhtok&quot;] | true;
+  nodes[idx].lastSeenMs = millis();
+  nodes[idx].everSeen   = true;
+  nodesDirty = true;
+}
+void newConnectionCallback(uint32_t nodeId) {
+  Serial.printf(&quot;mesh: new connection %u\n&quot;, nodeId);
+  nodesDirty = true;
+}
+void changedConnectionCallback(void) {
+  Serial.println(&quot;mesh: connections changed&quot;);
+  nodesDirty = true;
+}
+
+void setup(void) {
+  Serial.begin(115200);
+  delay(500);
+  Serial.println(&quot;--- forest display host booting ---&quot;);
+  pinMode(TOUCH_CS, OUTPUT);
+  digitalWrite(TOUCH_CS, HIGH);
+  pinMode(TOUCH_IRQ, INPUT_PULLUP);
+  SPI.begin(D4, TOUCH_MISO, D10, TOUCH_CS);
+  tft.init();
+  tft.setRotation(1);
+  tft.fillScreen(COL_BG);
+#if !SKIP_CALIBRATION
+  calibrate();
+#endif
+  tft.fillScreen(COL_BG);
+  tft.setTextSize(2);
+  tft.setTextColor(COL_DIM, COL_BG);
+  tft.drawCenterString(&quot;Joining mesh...&quot;, tft.width() / 2, tft.height() / 2);
+  mesh.setDebugMsgTypes(ERROR | STARTUP);
+  mesh.init(MESH_SSID, MESH_PASSWORD, &amp;userScheduler, MESH_PORT);
+  mesh.onReceive(&amp;receivedCallback);
+  mesh.onNewConnection(&amp;newConnectionCallback);
+  mesh.onChangedConnections(&amp;changedConnectionCallback);
+  drawCurrentScreen();
+  Serial.println(&quot;ready - joined mesh, tap the tabs to switch screens&quot;);
+}
+void loop(void) {
+  mesh.update();
+  int32_t x, y;
+  if (getTap(&amp;x, &amp;y)) {
+    Serial.printf(&quot;tap: %ld, %ld\n&quot;, (long)x, (long)y);
+    handleNavTap(x, y);
+  }
+  static unsigned long lastPaint = 0;
+  if (nodesDirty || millis() - lastPaint &gt; 1000) {
+    nodesDirty = false;
+    lastPaint  = millis();
+    drawCurrentScreen();
+  }
+}</code></pre>
+      <p class="code-caption">AI was used to create templates for the code and debugging, but not for any direct coding.</p>
 
     </section>
   </body>
@@ -58,4 +704,82 @@
 
   <script src="../config.js"></script>
   <script src="../slideshow.js"></script>
+  <script>
+    function initSTLViewer(canvasId, stlUrl) {
+      const canvas = document.getElementById(canvasId);
+      if (!canvas) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const w = Math.round(rect.width) || 560;
+      const h = Math.round(rect.height) || 360;
+      canvas.width = w;
+      canvas.height = h;
+
+      const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(w, h);
+      renderer.setClearColor(0x111111, 1);
+
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 10000);
+
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+      scene.add(ambientLight);
+      const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.8);
+      dirLight1.position.set(1, 2, 3);
+      scene.add(dirLight1);
+      const dirLight2 = new THREE.DirectionalLight(0x88aaff, 0.4);
+      dirLight2.position.set(-2, -1, -1);
+      scene.add(dirLight2);
+
+      const controls = new THREE.OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.08;
+
+      const loader = new THREE.STLLoader();
+      loader.load(stlUrl, function(geometry) {
+        geometry.computeBoundingBox();
+        const box = geometry.boundingBox;
+        const center = new THREE.Vector3();
+        box.getCenter(center);
+        geometry.translate(-center.x, -center.y, -center.z);
+
+        const size = new THREE.Vector3();
+        box.getSize(size);
+        const maxDim = Math.max(size.x, size.y, size.z);
+        camera.position.set(0, 0, maxDim * 1.8);
+        controls.update();
+
+        const material = new THREE.MeshPhongMaterial({
+          color: 0xcccccc,
+          specular: 0x333333,
+          shininess: 40
+        });
+        const mesh = new THREE.Mesh(geometry, material);
+        scene.add(mesh);
+      });
+
+      function animate() {
+        requestAnimationFrame(animate);
+        controls.update();
+        renderer.render(scene, camera);
+      }
+      animate();
+
+      window.addEventListener('resize', () => {
+        const r = canvas.getBoundingClientRect();
+        const rw = Math.round(r.width) || 560;
+        const rh = Math.round(r.height) || 360;
+        canvas.width = rw; canvas.height = rh;
+        renderer.setSize(rw, rh);
+        camera.aspect = rw / rh;
+        camera.updateProjectionMatrix();
+      });
+    }
+
+    window.addEventListener('load', () => {
+      initSTLViewer('viewer-sensor', './Assets/sensor%20enclosure.stl');
+      initSTLViewer('viewer-screen', './Assets/screen%20enclosure.stl');
+    });
+  </script>
 </html>
