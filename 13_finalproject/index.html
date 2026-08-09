@@ -65,6 +65,33 @@
 
       <p>My project is a forest fire sensor network. It creates a mesh of sensor nodes that detect and track the main factors that lead to forest fires, sending that data to a centralized host where it can be viewed and analyzed by scientists to better understand the causes of specific fires in an area. Each node uses a DHT22, an MQ135 gas sensor, a photo IR transistor, and a capacitive soil sensor to track humidity, soil moisture, temperature, CO2 percentage, and sunlight levels in the forest.</p>
 
+      <h2>Why Use the Forest Fire Tracker?</h2>
+      <p>The forest fire tracker is a fully modular mesh network system that tracks the most important factors in a forest fire. Because it is modular, it adapts to terrain without relying on satellite signal. It can be used in scientific studies to monitor the overall climate of an area without needing long-range antennas in every module, since all information is relayed between nodes using low-cost, short-range antennas. It can also help firefighters better prepare for and evaluate areas of a forest, giving them a larger pool of data to anticipate and counteract incoming fires. Finally, because of its modularity, it fits into a wide range of both high and low budget projects without losing much of its capability.</p>
+
+      <h2>Bill of Materials</h2>
+      <table style="width:100%; max-width:600px; border-collapse:collapse; margin:1rem auto;">
+        <thead>
+          <tr style="border-bottom:1px solid var(--accent-color);">
+            <th style="text-align:left; padding:0.5rem 1rem;">Component</th>
+            <th style="text-align:center; padding:0.5rem 1rem;">Quantity</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td style="padding:0.4rem 1rem;">Small Xiao Antenna</td><td style="text-align:center; padding:0.4rem 1rem;">2</td></tr>
+          <tr><td style="padding:0.4rem 1rem;">XIAO ESP32-C3</td><td style="text-align:center; padding:0.4rem 1rem;">3</td></tr>
+          <tr><td style="padding:0.4rem 1rem;">Single Sided Copper PCB</td><td style="text-align:center; padding:0.4rem 1rem;">1</td></tr>
+          <tr><td style="padding:0.4rem 1rem;">Socket Pins</td><td style="text-align:center; padding:0.4rem 1rem;">26</td></tr>
+          <tr><td style="padding:0.4rem 1rem;">MQ135 Gas Sensor</td><td style="text-align:center; padding:0.4rem 1rem;">1</td></tr>
+          <tr><td style="padding:0.4rem 1rem;">DHT22 Sensor</td><td style="text-align:center; padding:0.4rem 1rem;">1</td></tr>
+          <tr><td style="padding:0.4rem 1rem;">IR Photoresistor</td><td style="text-align:center; padding:0.4rem 1rem;">1</td></tr>
+          <tr><td style="padding:0.4rem 1rem;">Capacitive Soil Sensor</td><td style="text-align:center; padding:0.4rem 1rem;">1</td></tr>
+          <tr><td style="padding:0.4rem 1rem;">TFT Screen with Capacitive Touch</td><td style="text-align:center; padding:0.4rem 1rem;">1</td></tr>
+          <tr><td style="padding:0.4rem 1rem;">M3 35mm Screws</td><td style="text-align:center; padding:0.4rem 1rem;">4</td></tr>
+          <tr><td style="padding:0.4rem 1rem;">M3 10mm Screws</td><td style="text-align:center; padding:0.4rem 1rem;">2</td></tr>
+          <tr><td style="padding:0.4rem 1rem;">M3 16mm Screws</td><td style="text-align:center; padding:0.4rem 1rem;">4</td></tr>
+        </tbody>
+      </table>
+
       <h2>Tuesday Integrated Check In</h2>
       <div style="display:flex; gap:1rem; justify-content:center; align-items:flex-start;">
         <img src="./Assets/IMG_2016.jpg" alt="Sensor module check in" style="width:300px; height:400px; object-fit:cover;">
@@ -75,7 +102,7 @@
       <h2>Sensor Module</h2>
 
       <h3>Enclosures</h3>
-      <p>[ Add enclosures content here ]</p>
+
       <canvas class="stl-viewer" id="viewer-sensor"></canvas>
       <p class="stl-hint">Click and drag to rotate &nbsp;|&nbsp; Scroll to zoom &nbsp;|&nbsp; Right-click drag to pan</p>
       <p><a href="./Assets/sensor%20enclosure.stl" download>Download sensor enclosure.stl</a></p>
@@ -406,7 +433,7 @@ void loop() {
       <h2>Web Host and Center</h2>
 
       <h3>Enclosures</h3>
-      <p>[ Add enclosures content here ]</p>
+
       <canvas class="stl-viewer" id="viewer-screen"></canvas>
       <p class="stl-hint">Click and drag to rotate &nbsp;|&nbsp; Scroll to zoom &nbsp;|&nbsp; Right-click drag to pan</p>
       <p><a href="./Assets/screen%20enclosure.stl" download>Download screen enclosure.stl</a></p>
