@@ -57,10 +57,11 @@
   <body>
     <section class="blog">
       <h1>Final Project</h1>
-      
-      <p>
-        This is where you'll document your final project. Be sure to include a video demonstrating your project and a bill of materials. Good documentation should explain your entire build process such that someone reading your documentation could recreate your entire project from scratch. See the PS70 website for examples.
-      </p>
+
+      <h2>Demo</h2>
+      <video controls style="width:100%; max-width:700px; display:block; margin:1rem auto; border-radius:8px;">
+        <source src="./Assets/forest_sensor_demo.mp4" type="video/mp4">
+      </video>
 
       <h2>Tuesday Integrated Check In</h2>
       <div style="display:flex; gap:1rem; justify-content:center; align-items:flex-start;">
@@ -77,15 +78,191 @@
       <p class="stl-hint">Click and drag to rotate &nbsp;|&nbsp; Scroll to zoom &nbsp;|&nbsp; Right-click drag to pan</p>
       <p><a href="./Assets/sensor%20enclosure.stl" download>Download sensor enclosure.stl</a></p>
 
+      <h4>Design Process</h4>
+
+      <p>The process for creating this enclosure spanned a total of three days and five separate prototypes, each an improvement upon the last. The first step was determining the general shape and size of the enclosure. To narrow it down, I decided to base it on the shape of my PCB. The PCB was developed alongside the enclosure and was therefore also the reason for some of the main design changes.</p>
+
+      <p>The first prototype of the PCB was circular, and so the first concept for the enclosure was a cylinder. At first this worked, the PCB fit fairly snugly inside and all sensors seemed to fit, but once fully printed, one major problem arose: how to accurately create holes and spaces for the sensors to protrude through while designing on a circular form, without the ability to properly transfer dimensions between the PCB design files, the real-world sensor sizes, and the Fusion 360 STL files. A round shape introduced too many variables that could only be resolved through repeated trial and error. I reached a crossroads: continue with a circular design or switch to a square one. I chose a square design with mounting holes in the corners.</p>
+
+      <p>For the second iteration, I took a step back and split the enclosure into three parts: the floor where the PCB would be mounted, the shell that would protect the PCB, and the mounting system joining both together. For the floor, I designed a simple square with a divot where the PCB could sit, matching the exact outline of the PCB so it could be pressure-held in place. Once printed, everything fit, but the clearance modelled in CAD was too large and the PCB would simply fall out. To fix this, I drilled holes with a drill press and used them as mounting points, securing the floor and PCB together with screws.</p>
+
+      <p>To create the shell, I first measured the height and width of the fully assembled PCB with all modules attached, then laser cut a square and mounted it over the floor with the PCB inside. I drew directly onto the wood where material could be removed, going from a cube-shaped shell to one that closely followed the PCB profile. I then modelled this shape in CAD and printed it. It worked, but there were issues to address: several sensors required airflow, and a fully sealed enclosure prevented them from working correctly. I added a grate to allow air in, but this introduced a new problem: rain. To solve this, I added an overhang over every vent to prevent water from falling directly in. This completed the second prototype.</p>
+
+      <p>However, wind-driven rain remained a problem. I first tried making the vent holes smaller, but this restricted airflow too much and caused the CO2 sensor to interfere with the humidity sensor, making the third prototype unusable. I ultimately settled on chamfering the bottom of each vent so that any water pooling on the vents would flow outward along the rim rather than into the enclosure. This resolved the issue.</p>
+
+      <p>The final problem was connecting the floor and shell. I settled on screws, which required embedding nuts into the walls and increasing wall thickness, making the fourth prototype obsolete. After the final reprint, everything worked and the enclosure was complete.</p>
+
       <h3>Electronics and PCB Creation</h3>
-      <p>[ Add electronics and PCB content here ]</p>
+
+      <p>For the PCB, I went through three separate prototypes in total. One was due to enclosure issues, which have already been covered in the previous section. The remaining two were the result of wiring issues, which I will address here.</p>
+
+      <p>My first PCB appeared to bring together everything I needed for the project, but there were significant communication issues between the sensors and the Xiao that made it unviable. When designing the PCB I decided to skip the breadboard prototyping stage, as I felt the wiring inconsistencies with the contacts would be counterproductive to the design process. I used KiCad as my PCB design software. The first step was the schematic wiring: I wired the gas sensor to D1, the humidity sensor to D0, the IR sensor to D2, and the capacitive soil sensor to D3. At first everything appeared to work, but after closer inspection the humidity sensor was not functioning and I could not determine why. After reviewing the datasheet without finding anything obviously wrong, I consulted an Adafruit breakdown of the DHT sensor and discovered that it needed to be connected to a digital pin rather than an analog one, and required a specific library to operate correctly. I updated the wiring to connect the DHT sensor to the D4 pin and adjusted the code accordingly.</p>
+
+      <div style="display:flex; flex-direction:column; gap:4px; max-width:860px; margin:1rem auto;">
+        <div style="display:flex; gap:4px;">
+          <img src="./Assets/PCB_schematic.png" alt="PCB schematic" style="flex:1; min-width:0; height:300px; object-fit:cover;">
+          <img src="./Assets/PCB_layout.png" alt="PCB layout" style="flex:1; min-width:0; height:300px; object-fit:cover;">
+        </div>
+        <img src="./Assets/PCB_photo.jpg" alt="Finished PCB" style="width:100%; object-fit:contain; max-height:400px;">
+      </div>
 
       <h3>Code</h3>
       <p><a href="./Assets/forest_sensor_node.ino" download>Download forest_sensor_node.ino</a></p>
+      <p class="code-caption">AI was used to create templates for the code and debugging, but not for any direct coding.</p>
+
+      <h4>1. Libraries</h4>
+      <pre><code>#include &quot;painlessMesh.h&quot;
+#include &lt;ArduinoJson.h&gt;
+#include &quot;DHT.h&quot;</code></pre>
+      <p>These are the libraries included with the sensor node code. painlessMesh is the library that enables the mesh network, extending the ESP-NOW communication system to allow mesh creation across multiple nodes, similar to a Wi-Fi mesh. The ArduinoJSON library allows the microcontroller to parse and work with JSON, improving memory usage and allocation within the device. The DHT library enables the microcontroller to communicate with the DHT temperature and humidity sensor.</p>
+
+      <h4>2. Identification</h4>
+      <pre><code>String nodeName;
+static String deriveNodeName() {
+#ifdef NODE_NAME_OVERRIDE
+  return String(NODE_NAME_OVERRIDE);
+#else
+  uint64_t mac = ESP.getEfuseMac();
+  char buf[20];
+  snprintf(buf, sizeof(buf), &quot;sensor-%02x%02x%02x&quot;,
+           (uint8_t)(mac &gt;&gt; 16), (uint8_t)(mac &gt;&gt; 8), (uint8_t)mac);
+  return String(buf);
+#endif
+}</code></pre>
+      <p>The code retrieves the MAC address from the Xiao ESP32, an address that never changes, then uses the last few digits to generate a unique name for the node. This ensures the display host has a name to show for each node, allowing the user to understand which data is coming from which sensor unit.</p>
+
+      <h4>3. Entering the Mesh Network</h4>
+      <pre><code>#define MESH_SSID     &quot;sensorMesh&quot;
+#define MESH_PASSWORD &quot;meshpassword123&quot;
+#define MESH_PORT     5555
+Scheduler    userScheduler;
+painlessMesh mesh;
+void sendReading();
+Task taskSendReading(TASK_SECOND * 2, TASK_FOREVER, &amp;sendReading);</code></pre>
+      <p>This section sets the mesh network's name, password, and port. These credentials are what allow the microcontroller to connect to the mesh, while also preventing other devices from joining without them. The final two lines define the interval at which the sensor node sends its data into the mesh to be passed along to the display host.</p>
+
+      <h4>4. Sensor Pins, Variables, and Conversions</h4>
+      <pre><code>#define IR_PIN   A0
+#define GAS_PIN  A1
+#define SOIL_PIN A2
+#define DHTPIN   D4
+#define DHTTYPE  DHT22
+const float ADC_MAX_VOLTAGE = 3.3;
+const int   ADC_RESOLUTION  = 4095;
+const float GAS_DIVIDER_SCALE = 1.5;
+DHT dht(DHTPIN, DHTTYPE);
+unsigned long lastDHTRead = 0;
+const unsigned long DHT_INTERVAL_MS = 2000;</code></pre>
+      <p>This section assigns each sensor to its pin and defines the calibration values used to interpret their readings. The IR sensor is set to A0, the gas sensor to A1, the soil moisture sensor to A2, and the DHT sensor to D4, which is a digital pin. The maximum ADC voltage and resolution are then defined for accurate analog readings. Because resistors are placed in the gas sensor circuit to scale the voltage down, a multiplier called GAS_DIVIDER_SCALE is applied to compensate and recover the true sensor voltage. Finally, the minimum interval between DHT sensor reads is defined, since the DHT22 has a slower response time than the other sensors and cannot be polled as frequently.</p>
+
+      <h4>5. Variable Cache</h4>
+      <pre><code>int   latestIrRaw   = 0;
+int   latestGasRaw  = 0;
+int   latestSoilRaw = 0;
+float latestTempC   = 0.0f;
+float latestHum     = 0.0f;
+bool  dhtValid      = false;
+unsigned long lastDHTOkMs = 0;</code></pre>
+      <p>Because sensor reading and data transmission happen on different timings, readings cannot simply be sent the moment they are taken. These variables act as a cache, temporary storage that holds the latest sensor values long enough for them to be broadcast to the host. The concept is similar to a CPU cache: fast, short-lived storage that bridges the gap between two processes running at different speeds.</p>
+
+      <h4>6. Message Formatting, Assembly, and Check</h4>
+      <pre><code>void sendReading() {
+  StaticJsonDocument&lt;256&gt; doc;
+  doc[&quot;node&quot;] = nodeName;
+  doc[&quot;ir&quot;]   = latestIrRaw;
+  doc[&quot;gas&quot;]  = latestGasRaw;
+  doc[&quot;soil&quot;] = latestSoilRaw;
+  bool ok = dhtValid &amp;&amp; (millis() - lastDHTOkMs &lt; 10000);
+  doc[&quot;temp&quot;]  = ok ? latestTempC : 0.0f;
+  doc[&quot;hum&quot;]   = ok ? latestHum   : 0.0f;
+  doc[&quot;dhtok&quot;] = ok;
+  String payload;
+  serializeJson(doc, payload);
+  mesh.sendBroadcast(payload);
+  Serial.print(&quot;Sent: &quot;);
+  Serial.println(payload);
+}</code></pre>
+      <p>First, the code reserves 256 bytes of memory, the maximum size the message will need. Using the JSON document, it then assembles the message in order: the sender's name followed by all sensor readings. It then checks whether the temperature and humidity data can be trusted by verifying the DHT sensor responded recently. Finally, the assembled document is flattened into a string and broadcast across the mesh network to the host.</p>
+
+      <h4>7. The Setup</h4>
+      <pre><code>void setup() {
+  Serial.begin(115200);
+  delay(500);
+  nodeName = deriveNodeName();
+  analogReadResolution(12);
+  dht.begin();
+  mesh.setDebugMsgTypes(ERROR | STARTUP);
+  mesh.init(MESH_SSID, MESH_PASSWORD, &amp;userScheduler, MESH_PORT);
+  mesh.onReceive(&amp;receivedCallback);
+  mesh.onNewConnection(&amp;newConnectionCallback);
+  userScheduler.addTask(taskSendReading);
+  taskSendReading.enable();
+  Serial.println();
+  Serial.println(F(&quot;=== ALL SENSORS TEST ===&quot;));
+  Serial.println(F(&quot;IR (A0) | Gas (A1) | Soil (A2) | DHT22 (D4)&quot;));
+  Serial.println();
+  Serial.printf(&quot;%s ready, joining mesh.\n&quot;, nodeName.c_str());
+}</code></pre>
+      <p>The setup function primarily serves as a timer start and debugging tool. It starts the timer that tracks the interval between humidity sensor reads, initialises all sensors and the mesh connection, and enables the broadcast task. It also sends serial messages to the computer covering all sensors, which is useful for verifying that each component is working correctly during development.</p>
+
+      <h4>8. Void Loop</h4>
+      <pre><code>void loop() {
+  mesh.update();
+  static unsigned long lastSample = 0;
+  if (millis() - lastSample &lt; 300) return;
+  lastSample = millis();
+  int irRaw = analogRead(IR_PIN);
+  float irVolts = irRaw * (ADC_MAX_VOLTAGE / ADC_RESOLUTION);
+  int gasRaw = analogRead(GAS_PIN);
+  float gasPinVolts = gasRaw * (ADC_MAX_VOLTAGE / ADC_RESOLUTION);
+  float gasSensorVolts = gasPinVolts * GAS_DIVIDER_SCALE;
+  int soilRaw = analogRead(SOIL_PIN);
+  float soilVolts = soilRaw * (ADC_MAX_VOLTAGE / ADC_RESOLUTION);
+  Serial.print(F(&quot;IR raw: &quot;));
+  Serial.print(irRaw);
+  Serial.print(F(&quot; (&quot;));
+  Serial.print(irVolts, 2);
+  Serial.print(F(&quot;V)  |  Gas raw: &quot;));
+  Serial.print(gasRaw);
+  Serial.print(F(&quot; (&quot;));
+  Serial.print(gasSensorVolts, 2);
+  Serial.print(F(&quot;V)  |  Soil raw: &quot;));
+  Serial.print(soilRaw);
+  Serial.print(F(&quot; (&quot;));
+  Serial.print(soilVolts, 2);
+  Serial.print(F(&quot;V)&quot;));
+  if (millis() - lastDHTRead &gt;= DHT_INTERVAL_MS) {
+    lastDHTRead = millis();
+    float h = dht.readHumidity();
+    float t = dht.readTemperature();
+    Serial.print(F(&quot;  |  DHT: &quot;));
+    if (isnan(h) || isnan(t)) {
+      Serial.print(F(&quot;read failed&quot;));
+      dhtValid = false;
+    } else {
+      Serial.print(t, 1);
+      Serial.print(F(&quot;C &quot;));
+      Serial.print(h, 1);
+      Serial.print(F(&quot;%&quot;));
+      latestTempC = t;
+      latestHum   = h;
+      dhtValid    = true;
+      lastDHTOkMs = millis();
+    }
+  }
+  Serial.println();
+  latestIrRaw   = irRaw;
+  latestGasRaw  = gasRaw;
+  latestSoilRaw = soilRaw;
+}</code></pre>
+      <p>The loop limits each sensor read to three times per second. Since the DHT sensor only produces a valid reading every two seconds, it is the bottleneck for how often data can actually be broadcast, making it unnecessary to sample any faster. After each reading cycle the raw values are stored in the cache variables and the previously defined functions handle assembling and sending the data to the host over the mesh network.</p>
+
+      <h4>Full Code</h4>
       <pre><code>#include &quot;painlessMesh.h&quot;
 #include &lt;ArduinoJson.h&gt;
 #include &quot;DHT.h&quot;
-
+// Uncomment / edit to force a specific name for this board:
+// #define NODE_NAME_OVERRIDE &quot;sensor1&quot;
 String nodeName;
 static String deriveNodeName() {
 #ifdef NODE_NAME_OVERRIDE
@@ -98,7 +275,6 @@ static String deriveNodeName() {
   return String(buf);
 #endif
 }
-
 #define MESH_SSID     &quot;sensorMesh&quot;
 #define MESH_PASSWORD &quot;meshpassword123&quot;
 #define MESH_PORT     5555
@@ -106,7 +282,6 @@ Scheduler    userScheduler;
 painlessMesh mesh;
 void sendReading();
 Task taskSendReading(TASK_SECOND * 2, TASK_FOREVER, &amp;sendReading);
-
 #define IR_PIN   A0
 #define GAS_PIN  A1
 #define SOIL_PIN A2
@@ -118,7 +293,6 @@ const float GAS_DIVIDER_SCALE = 1.5;
 DHT dht(DHTPIN, DHTTYPE);
 unsigned long lastDHTRead = 0;
 const unsigned long DHT_INTERVAL_MS = 2000;
-
 int   latestIrRaw   = 0;
 int   latestGasRaw  = 0;
 int   latestSoilRaw = 0;
@@ -126,7 +300,6 @@ float latestTempC   = 0.0f;
 float latestHum     = 0.0f;
 bool  dhtValid      = false;
 unsigned long lastDHTOkMs = 0;
-
 void sendReading() {
   StaticJsonDocument&lt;256&gt; doc;
   doc[&quot;node&quot;] = nodeName;
@@ -143,14 +316,12 @@ void sendReading() {
   Serial.print(&quot;Sent: &quot;);
   Serial.println(payload);
 }
-
 void receivedCallback(uint32_t from, String &amp;msg) {
   Serial.printf(&quot;Relay/other node msg from %u: %s\n&quot;, from, msg.c_str());
 }
 void newConnectionCallback(uint32_t nodeId) {
   Serial.printf(&quot;New mesh connection: %u\n&quot;, nodeId);
 }
-
 void setup() {
   Serial.begin(115200);
   delay(500);
@@ -169,7 +340,6 @@ void setup() {
   Serial.println();
   Serial.printf(&quot;%s ready, joining mesh.\n&quot;, nodeName.c_str());
 }
-
 void loop() {
   mesh.update();
   static unsigned long lastSample = 0;
@@ -219,7 +389,17 @@ void loop() {
   latestGasRaw  = gasRaw;
   latestSoilRaw = soilRaw;
 }</code></pre>
-      <p class="code-caption">AI was used to create templates for the code and debugging, but not for any direct coding.</p>
+
+      <h4>How AI Was Used in the Coding Process</h4>
+      <ul>
+        <li>AI was fed the GitHub README and example code of the mesh network library to generate example code relevant to the project.</li>
+        <li>AI was used to create a template to write on, along with step-by-step explanations and hints.</li>
+        <li>AI was used to establish the major structural constraints, such as JSON-dependent formatting.</li>
+        <li>AI was used to debug the code using Serial.print statements, and most Serial.print calls in the code were written by AI for debugging purposes.</li>
+        <li>AI was used to correct syntax errors.</li>
+        <li>AI was used to create the JSON formatting.</li>
+      </ul>
+      <p>Aside from the uses listed above, all code was written by me with help from the TAs, Victor and Hannah.</p>
 
       <h2>Web Host and Center</h2>
 
@@ -229,8 +409,26 @@ void loop() {
       <p class="stl-hint">Click and drag to rotate &nbsp;|&nbsp; Scroll to zoom &nbsp;|&nbsp; Right-click drag to pan</p>
       <p><a href="./Assets/screen%20enclosure.stl" download>Download screen enclosure.stl</a></p>
 
+      <h4>Design Process</h4>
+
+      <p>For the host enclosure, I took a display-centric approach, making the screen the main visible part of the design. The first step was measuring the display using calipers, then using those measurements to laser cut a prototype display holder. This allowed me to understand how to properly mount the display without waiting through long print times.</p>
+
+      <p>The first prototype appeared to fit, but the TFT display would not seat correctly in the socket. I had forgotten to include a cutout for the SD card slot, which prevented the display from sitting flush. The second prototype added that cutout, and once cut, the display fit perfectly.</p>
+
+      <p>For the rest of the enclosure I was able to get it right in a single prototype. I built a box beneath the display holder with matching length and width, which made fitting all the electronics straightforward. I then added a 30mm cutout for the long antenna, a hole for the SD card, and a hole at the bottom for troubleshooting access. To mount the display to the box I used four M3 35mm screws that attach to a separate plate with a cutout for the screen, clamping the PCB down to the box.</p>
+
+      <p>The final assembly worked on the first attempt.</p>
+
       <h3>Electronics and PCB Creation</h3>
-      <p>[ Add electronics and PCB content here ]</p>
+
+      <p>For the display, I decided to use a perfboard instead of milling a PCB. The wiring I followed was not my own, so I adapted an existing TFT tutorial for the ESP32 Dev Kit to fit my specific board.</p>
+
+      <figure style="text-align:center; margin:1rem 0;">
+        <img src="./Assets/circuit_diagram.png" alt="ESP32 TFT wiring diagram" style="max-width:100%; border-radius:6px;">
+        <figcaption style="font-size:0.85rem; opacity:0.7; margin-top:0.5rem;">
+          Circuit diagram adapted from: <a href="https://www.dofbot.com/post/esp32-3-5inch-tft-touch-display-ili9488-with-lvgl-ui-part4" target="_blank">dofbot.com: ESP32 3.5" TFT Touch Display ILI9488 with LVGL UI (Part 4)</a>
+        </figcaption>
+      </figure>
 
       <h3>Code</h3>
       <p><a href="./Assets/forest_display_host.ino" download>Download forest_display_host.ino</a></p>
