@@ -63,6 +63,8 @@
         <source src="./Assets/forest_sensor_demo.mp4" type="video/mp4">
       </video>
 
+      <p>My project is a forest fire sensor network. It creates a mesh of sensor nodes that detect and track the main factors that lead to forest fires, sending that data to a centralized host where it can be viewed and analyzed by scientists to better understand the causes of specific fires in an area. Each node uses a DHT22, an MQ135 gas sensor, a photo IR transistor, and a capacitive soil sensor to track humidity, soil moisture, temperature, CO2 percentage, and sunlight levels in the forest.</p>
+
       <h2>Tuesday Integrated Check In</h2>
       <div style="display:flex; gap:1rem; justify-content:center; align-items:flex-start;">
         <img src="./Assets/IMG_2016.jpg" alt="Sensor module check in" style="width:300px; height:400px; object-fit:cover;">
@@ -432,6 +434,137 @@ void loop() {
 
       <h3>Code</h3>
       <p><a href="./Assets/forest_display_host.ino" download>Download forest_display_host.ino</a></p>
+
+      <h4>1. Defining a Node and Time Before Inactivity</h4>
+      <pre><code>#define MESH_SSID     &quot;sensorMesh&quot;
+#define MESH_PASSWORD &quot;meshpassword123&quot;
+#define MESH_PORT     5555
+#define MAX_NODES     6
+#define STALE_MS      10000UL
+struct NodeReading {
+  String        name;
+  int           ir, gas, soil;
+  float         temp, hum;
+  bool          dhtOk;
+  unsigned long lastSeenMs;
+  bool          everSeen;
+};
+NodeReading nodes[MAX_NODES];
+int  knownNodeCount = 0;
+bool nodesDirty     = true;
+Scheduler   userScheduler;
+painlessMesh mesh;</code></pre>
+      <p>The code itself does not see a sensor node as an actual device. To the host, it is just receiving external data, so to display and categorize it the code looks at the address that sent the data and keeps track of which readings belong together. The Xiao also defines the maximum number of nodes as 6, an arbitrary limit only constrained by how much memory the Xiao has. Finally, it defines the maximum acceptable gap between readings: if a sensor goes more than 10 seconds without sending data, it is considered inactive.</p>
+
+      <h4>2. Data Allocation</h4>
+      <pre><code>int findOrAddNode(const String &amp;name) {
+  for (int i = 0; i &lt; knownNodeCount; i++) {
+    if (nodes[i].name == name) return i;
+  }
+  if (knownNodeCount &lt; MAX_NODES) {
+    nodes[knownNodeCount].name = name;
+    nodes[knownNodeCount].everSeen = false;
+    return knownNodeCount++;
+  }
+  return -1;
+}</code></pre>
+      <p>When new data is received, the microcontroller looks at the sender's address and tries to match it against the addresses it already knows. If a match is found, it updates the data for that node. If no match is found, it creates a new profile and fills it with the incoming data. This can only happen while the total number of known nodes is below 6.</p>
+
+      <h4>3. Message Delay Tracking</h4>
+      <pre><code>bool nodeIsStale(const NodeReading &amp;n) {
+  return !n.everSeen || (millis() - n.lastSeenMs &gt; STALE_MS);
+}</code></pre>
+      <p>This tracks the time interval between each reception of data from a given node. If the node has never been seen, or if more than 10 seconds have passed since its last message, the function returns true, marking that node as inactive.</p>
+
+      <h4>4. The Reception of Data</h4>
+      <pre><code>void receivedCallback(uint32_t from, String &amp;msg) {
+  Serial.printf(&quot;rx from %u: %s\n&quot;, from, msg.c_str());
+  StaticJsonDocument&lt;256&gt; doc;
+  if (deserializeJson(doc, msg)) return;
+  String name = doc[&quot;node&quot;] | &quot;unknown&quot;;
+  int idx = findOrAddNode(name);
+  if (idx &lt; 0) return;
+  nodes[idx].ir   = doc[&quot;ir&quot;]   | 0;
+  nodes[idx].gas  = doc[&quot;gas&quot;]  | 0;
+  nodes[idx].soil = doc[&quot;soil&quot;] | 0;
+  nodes[idx].temp = doc[&quot;temp&quot;] | 0.0f;
+  nodes[idx].hum  = doc[&quot;hum&quot;]  | 0.0f;
+  nodes[idx].dhtOk = doc[&quot;dhtok&quot;] | true;
+  nodes[idx].lastSeenMs = millis();
+  nodes[idx].everSeen   = true;
+  nodesDirty = true;
+}</code></pre>
+      <p>First it logs that data came in, for debug purposes. Then it sets aside 256 bytes of storage to properly receive the message and checks whether anything got corrupted during transmission; if so, it cancels the receive entirely. It then checks which node object should receive this data and whether the sender is new. If there are no remaining node slots and the sender is new, the data is discarded. Otherwise, it writes all the incoming values to the correct node and marks it as recently seen.</p>
+
+      <h4>5. Mesh Changes</h4>
+      <pre><code>void newConnectionCallback(uint32_t nodeId) {
+  Serial.printf(&quot;mesh: new connection %u\n&quot;, nodeId);
+  nodesDirty = true;
+}
+void changedConnectionCallback(void) {
+  Serial.println(&quot;mesh: connections changed&quot;);
+  nodesDirty = true;
+}</code></pre>
+      <p>These fire whenever the shape of the mesh changes, such as a node joining or dropping out, and flag the display to update the node count accordingly.</p>
+
+      <h4>6. Touch, Display, and Calibration</h4>
+      <pre><code>void setup(void) {
+  Serial.begin(115200);
+  delay(500);
+  Serial.println(&quot;--- forest display host booting ---&quot;);
+  pinMode(TOUCH_CS, OUTPUT);
+  digitalWrite(TOUCH_CS, HIGH);
+  pinMode(TOUCH_IRQ, INPUT_PULLUP);
+  SPI.begin(D4, TOUCH_MISO, D10, TOUCH_CS);
+  tft.init();
+  tft.setRotation(1);
+  tft.fillScreen(COL_BG);
+#if !SKIP_CALIBRATION
+  calibrate();
+#endif
+  tft.fillScreen(COL_BG);
+  tft.setTextSize(2);
+  tft.setTextColor(COL_DIM, COL_BG);
+  tft.drawCenterString(&quot;Joining mesh...&quot;, tft.width() / 2, tft.height() / 2);
+  mesh.setDebugMsgTypes(ERROR | STARTUP);
+  mesh.init(MESH_SSID, MESH_PASSWORD, &amp;userScheduler, MESH_PORT);
+  mesh.onReceive(&amp;receivedCallback);
+  mesh.onNewConnection(&amp;newConnectionCallback);
+  mesh.onChangedConnections(&amp;changedConnectionCallback);
+  drawCurrentScreen();
+  Serial.println(&quot;ready - joined mesh, tap the tabs to switch screens&quot;);
+}</code></pre>
+      <p>First the microcontroller initializes the touch panel, ensuring it is deselected before the display touches the shared SPI bus. Once that is done, the display turns on and is held in a waiting state. It stays halted until the user touches the screen five times to complete the touch calibration process. Once calibration is finished, the halt is lifted and the microcontroller is free to join the mesh network.</p>
+
+      <h4>7. The Loop</h4>
+      <pre><code>void loop(void) {
+  mesh.update();
+  int32_t x, y;
+  if (getTap(&amp;x, &amp;y)) {
+    Serial.printf(&quot;tap: %ld, %ld\n&quot;, (long)x, (long)y);
+    handleNavTap(x, y);
+  }
+  static unsigned long lastPaint = 0;
+  if (nodesDirty || millis() - lastPaint &gt; 1000) {
+    nodesDirty = false;
+    lastPaint  = millis();
+    drawCurrentScreen();
+  }
+}</code></pre>
+      <p>This section handles the ongoing maintenance of the network. It runs continuously, keeping the mesh updated and checking for touch input. The display is redrawn whenever data changes, such as a node being added, going stale, or coming back live, and also refreshes once per second so that inactivity timers stay current.</p>
+
+      <h4>How AI Was Used in the Coding Process</h4>
+      <ul>
+        <li>AI was fed the GitHub README and example code of the mesh network library to generate example code relevant to the project.</li>
+        <li>AI was used to create a template to write on, along with step-by-step explanations and hints.</li>
+        <li>AI was used to establish the major structural constraints, such as JSON-dependent formatting.</li>
+        <li>AI was used to debug the code using Serial.print statements, and most Serial.print calls in the code were written by AI for debugging purposes.</li>
+        <li>AI was used to correct syntax errors.</li>
+        <li>AI was used to create the JSON formatting.</li>
+      </ul>
+      <p>The UI, display rendering, and touch calibration code were not written by me. Aside from those sections and the uses listed above, all code was written by me with help from the TAs, Victor and Hannah.</p>
+
+      <h4>Full Code</h4>
       <pre><code>#include &lt;Arduino.h&gt;
 #define LGFX_USE_V1
 #include &lt;LovyanGFX.hpp&gt;
